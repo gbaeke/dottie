@@ -16,6 +16,8 @@ esac
 
 need uv "https://docs.astral.sh/uv/getting-started/installation/"
 [ -f .env ] || { cp .env.example .env; echo "Created .env from .env.example."; }
+# the secret store needs a key; make one the first time (changing it later makes stored secrets unreadable)
+grep -q '^SECRETS_KEY=.' .env || { sed -i '/^SECRETS_KEY=/d' .env; echo "SECRETS_KEY=$(openssl rand -base64 32)" >> .env; }
 uv sync
 # fail now, not after the build, when another app holds the port
 port=$(uv run python -c "from dottie.config import get_settings; print(get_settings().port)")

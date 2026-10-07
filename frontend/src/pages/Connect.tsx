@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, KeyRound, Plug, Trash2 } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
+import { useLocation } from 'react-router'
 import { toast } from 'sonner'
 import {
   createTokenMutation,
@@ -8,6 +9,7 @@ import {
   listTokensOptions,
   listTokensQueryKey,
 } from '@/client/@tanstack/react-query.gen'
+import { Secrets } from '@/components/Secrets'
 import { EmptyState, ListSkeleton, Page, PageTitle, Spinner } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import { absoluteTime, relativeTime } from '@/lib/format'
@@ -45,6 +47,11 @@ export function Connect() {
   const qc = useQueryClient()
   const tokens = useQuery(listTokensOptions())
   const url = `${window.location.origin}/mcp/`
+  const { hash } = useLocation()
+  useEffect(() => {
+    // the MCP editor links to #secrets: React Router does not scroll to an anchor by itself
+    if (hash === '#secrets') document.getElementById('secrets')?.scrollIntoView({ block: 'start' })
+  }, [hash])
   const [name, setName] = useState('')
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
   const refresh = () => qc.invalidateQueries({ queryKey: listTokensQueryKey() })
@@ -70,7 +77,9 @@ export function Connect() {
 
   return (
     <Page>
-      <PageTitle title="Connect" sub="Use your dotties from other tools, such as Claude Code, over MCP." />
+      <PageTitle title="Connect" sub="Secrets for your dotties' tools, and access to your dotties from other tools." />
+      <Secrets />
+      <h2 className="mb-1 font-medium">Use your dotties from other tools</h2>
       <p className="mb-4 text-sm text-fg-muted">
         Your dotties answer on <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{url}</code>. A tool
         signs in with a personal access token, sent as a Bearer token, and then sees only your dotties: it can list

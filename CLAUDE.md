@@ -85,3 +85,6 @@ uv add PKG / uv add --dev PKG     # never pip; never edit uv.lock by hand
 - `PUBLIC_URL` is the address people use (sign-in callbacks); `GATEWAY_URL` is how a sandbox reaches the callback API.
   The gateway app (`SERVE=internal`) has no sign-in middleware on purpose.
 - MCP has its own gate (`McpAccess`, personal access tokens), and `/mcp` is exempt from the browser login for that reason.
+- Credentials never go into a URL, a config or a log: they are secrets (`engine/secrets.py`), referenced as
+  `{{secret:NAME}}` and filled in only inside the app when connecting. Log MCP servers with `mcp.describe()` (host and path),
+  never the URL. The secrets API never returns a value; keep it that way, and add a test when you add an endpoint near it.

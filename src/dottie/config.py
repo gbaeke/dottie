@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     public_url: str = ""  # the address people use, when a proxy hides it (Azure Container Apps)
     max_dotties_per_user: int = 20
 
+    # --- Secrets: what a user keeps for their dotties (API keys for MCP servers), encrypted in the database ---
+    secrets_key: SecretStr = SecretStr("")  # any long random string; changing it makes stored secrets unreadable
+
     # --- The engine: the dispatcher that wakes dotties and the scheduler that fires their schedules ---
     engine_enabled: bool = True  # tests turn it off and drive the dispatcher by hand
     poll_seconds: float = 0.5  # how often the dispatcher looks for pending messages and due schedules

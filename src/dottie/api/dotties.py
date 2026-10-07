@@ -6,13 +6,14 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..auth import UserDep
+from ..auth import User, UserDep
 from ..db import SessionDep
 from ..engine import files
+from ..engine.mcp import config_problems, referenced_secrets
 from ..engine.seed import TEMPLATES
 from ..engine.tools import DEFAULT_TOOLKITS, TOOLKITS, is_public_url
 from ..models import Dottie, Message, Run, Schedule, Skill
@@ -25,8 +26,20 @@ router = APIRouter(tags=["dotties"])
 
 
 class McpServer(BaseModel):
+    """An MCP server a dottie may use. Values of `headers` and `query` may contain `{{secret:NAME}}`; anything that
+    looks like a credential must, because a literal one would be stored and shown in clear."""
+
     name: Annotated[str, Field(pattern=r"^[a-zA-Z][a-zA-Z0-9_-]{0,39}$")]
     url: HttpUrl
+    headers: dict[str, str] = Field(default_factory=dict)
+    query: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _no_literal_credentials(self) -> McpServer:
+        problems = config_problems(self.model_dump(mode="json"))
+        if problems:
+            raise ValueError(" ".join(problems))
+        return self
 
 
 class DottieIn(BaseModel):
@@ -160,12 +173,17 @@ def present(session: Session, dotties: list[Dottie]) -> list[DottieOut]:
     ]
 
 
-def _check_servers(request: Request, servers: list[McpServer]) -> None:
-    """With several users, an MCP server must be on a public address: the app is the one calling it."""
-    if request.app.state.settings.auth_enabled:
-        for server in servers:
-            if not is_public_url(str(server.url)):
-                raise ApiError("invalid", f"MCP server {server.name!r} must be on a public address.", 422)
+def _check_servers(request: Request, user: User, servers: list[McpServer]) -> None:
+    """With several users, an MCP server must be on a public address (the app is the one calling it), and every secret
+    it refers to must exist, so a typo is caught now and not on the dottie's next waking."""
+    known = request.app.state.secret_store.names(user.id)
+    for server in servers:
+        if request.app.state.settings.auth_enabled and not is_public_url(str(server.url)):
+            raise ApiError("invalid", f"MCP server {server.name!r} must be on a public address.", 422)
+        if missing := referenced_secrets(server.model_dump(mode="json")) - known:
+            raise ApiError(
+                "invalid", f"MCP server {server.name!r} uses the secret(s) {', '.join(sorted(missing))}: not set.", 422
+            )
 
 
 def _skills(session: Session, ids: list[int], owner_id: str) -> list[Skill]:
@@ -200,7 +218,7 @@ def create_dottie(data: DottieIn, session: SessionDep, request: Request, user: U
     limit = request.app.state.settings.max_dotties_per_user
     if (session.scalar(select(func.count()).where(Dottie.owner_id == user.id)) or 0) >= limit:
         raise ApiError("limit_reached", f"You can have at most {limit} dotties.", 409)
-    _check_servers(request, data.mcp_servers)
+    _check_servers(request, user, data.mcp_servers)
     dottie = Dottie(
         owner_id=user.id,
         **data.model_dump(exclude={"skill_ids", "mcp_servers"}),
@@ -223,7 +241,7 @@ def get_dottie(dottie_id: int, session: SessionDep, user: UserDep) -> DottieOut:
 @router.patch("/dotties/{dottie_id}")
 def update_dottie(dottie_id: int, data: DottiePatch, session: SessionDep, request: Request, user: UserDep) -> DottieOut:
     dottie = owned_dottie(session, user, dottie_id)
-    _check_servers(request, data.mcp_servers or [])
+    _check_servers(request, user, data.mcp_servers or [])
     changes = data.model_dump(exclude_unset=True, exclude={"skill_ids", "mcp_servers"})
     for field, value in changes.items():
         setattr(dottie, field, value)

@@ -44,6 +44,10 @@ param sessionSecret string = ''
 @description('Comma separated emails the app lets in (ALLOWED_USERS). Empty: everyone WorkOS lets in.')
 param allowedUsers string = ''
 
+@secure()
+@description('Encrypts the secrets users store (SECRETS_KEY). Both apps need it: the gateway runs the tools in sandbox mode.')
+param secretsKey string = ''
+
 @description('Most dotties one user may have.')
 param maxDottiesPerUser int = 20
 
@@ -94,9 +98,10 @@ var workosEnv = withWorkos
       empty(allowedUsers) ? [] : [{ name: 'ALLOWED_USERS', value: allowedUsers }]
     )
   : []
-var secrets = withWorkos
-  ? [{ name: 'workos-api-key', value: workosApiKey }, { name: 'session-secret', value: sessionSecret }]
-  : []
+var secrets = concat(
+  withWorkos ? [{ name: 'workos-api-key', value: workosApiKey }, { name: 'session-secret', value: sessionSecret }] : [],
+  empty(secretsKey) ? [] : [{ name: 'secrets-key', value: secretsKey }]
+)
 var appEnv = concat(
   [{ name: 'LOG_JSON', value: 'true' }],
   [
@@ -118,7 +123,8 @@ var appEnv = concat(
     { name: 'AGENT_MODE', value: agentMode }
   ],
   empty(gatewayUrl) ? [] : [{ name: 'GATEWAY_URL', value: gatewayUrl }],
-  workosEnv
+  workosEnv,
+  empty(secretsKey) ? [] : [{ name: 'SECRETS_KEY', secretRef: 'secrets-key' }]
 )
 
 resource app 'Microsoft.App/containerApps@2025-01-01' = {

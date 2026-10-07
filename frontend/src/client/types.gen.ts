@@ -280,6 +280,9 @@ export type InboxItem = {
 
 /**
  * McpServer
+ *
+ * An MCP server a dottie may use. Values of `headers` and `query` may contain `{{secret:NAME}}`; anything that
+ * looks like a credential must, because a literal one would be stored and shown in clear.
  */
 export type McpServer = {
     /**
@@ -290,6 +293,36 @@ export type McpServer = {
      * Url
      */
     url: string;
+    /**
+     * Headers
+     */
+    headers?: {
+        [key: string]: string;
+    };
+    /**
+     * Query
+     */
+    query?: {
+        [key: string]: string;
+    };
+};
+
+/**
+ * McpTest
+ */
+export type McpTest = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Tools
+     */
+    tools: Array<ToolInfo>;
+    /**
+     * Problems
+     */
+    problems: Array<string>;
 };
 
 /**
@@ -566,6 +599,38 @@ export type SchedulePatch = {
 };
 
 /**
+ * SecretIn
+ */
+export type SecretIn = {
+    /**
+     * Value
+     */
+    value: string;
+};
+
+/**
+ * SecretOut
+ */
+export type SecretOut = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Hint
+     */
+    hint: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Used By
+     */
+    used_by: Array<string>;
+};
+
+/**
  * SkillIn
  */
 export type SkillIn = {
@@ -747,6 +812,20 @@ export type TokenOut = {
      * Last Used At
      */
     last_used_at: string | null;
+};
+
+/**
+ * ToolInfo
+ */
+export type ToolInfo = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description: string;
 };
 
 /**
@@ -1902,3 +1981,106 @@ export type DeleteTokenResponses = {
 };
 
 export type DeleteTokenResponse = DeleteTokenResponses[keyof DeleteTokenResponses];
+
+export type ListSecretsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/secrets';
+};
+
+export type ListSecretsResponses = {
+    /**
+     * Response List Secrets
+     *
+     * Successful Response
+     */
+    200: Array<SecretOut>;
+};
+
+export type ListSecretsResponse = ListSecretsResponses[keyof ListSecretsResponses];
+
+export type DeleteSecretData = {
+    body?: never;
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/secrets/{name}';
+};
+
+export type DeleteSecretErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteSecretError = DeleteSecretErrors[keyof DeleteSecretErrors];
+
+export type DeleteSecretResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteSecretResponse = DeleteSecretResponses[keyof DeleteSecretResponses];
+
+export type SetSecretData = {
+    body: SecretIn;
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/secrets/{name}';
+};
+
+export type SetSecretErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SetSecretError = SetSecretErrors[keyof SetSecretErrors];
+
+export type SetSecretResponses = {
+    /**
+     * Successful Response
+     */
+    200: SecretOut;
+};
+
+export type SetSecretResponse = SetSecretResponses[keyof SetSecretResponses];
+
+export type TestServerData = {
+    body: McpServer;
+    path?: never;
+    query?: never;
+    url: '/api/mcp-servers/test';
+};
+
+export type TestServerErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TestServerError = TestServerErrors[keyof TestServerErrors];
+
+export type TestServerResponses = {
+    /**
+     * Successful Response
+     */
+    200: McpTest;
+};
+
+export type TestServerResponse = TestServerResponses[keyof TestServerResponses];

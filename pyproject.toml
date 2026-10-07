@@ -9,6 +9,7 @@ dependencies = [
     "azure-containerapps-sandbox>=0.1.0b4",
     "azure-identity>=1.26.0",
     "croniter>=6.2.4",
+    "cryptography>=50.0.2",
     "deepagents>=0.7.22",
     "fastapi>=0.142.2",
     "langchain-mcp-adapters>=0.3.2",

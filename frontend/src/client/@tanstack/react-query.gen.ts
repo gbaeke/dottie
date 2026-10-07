@@ -3,8 +3,8 @@
 import { type DefaultError, type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { createConversation, createDottie, createSchedule, createSkill, createToken, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSkill, deleteToken, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSkills, listTemplates, listTokens, listToolkits, markRead, me, type Options, readInbox, readPage, runNow, sendMessage, stream, system, traffic, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
-import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, CreateTokenData, CreateTokenError, CreateTokenResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteTokenData, DeleteTokenError, DeleteTokenResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListTokensData, ListTokensResponse, ListToolkitsData, ListToolkitsResponse, MarkReadData, MarkReadError, MarkReadResponse, MeData, MeResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, StreamData, SystemData, SystemResponse, TrafficData, TrafficError, TrafficResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
+import { createConversation, createDottie, createSchedule, createSkill, createToken, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSecret, deleteSkill, deleteToken, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSecrets, listSkills, listTemplates, listTokens, listToolkits, markRead, me, type Options, readInbox, readPage, runNow, sendMessage, setSecret, stream, system, testServer, traffic, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
+import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, CreateTokenData, CreateTokenError, CreateTokenResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSecretData, DeleteSecretError, DeleteSecretResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteTokenData, DeleteTokenError, DeleteTokenResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSecretsData, ListSecretsResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListTokensData, ListTokensResponse, ListToolkitsData, ListToolkitsResponse, MarkReadData, MarkReadError, MarkReadResponse, MeData, MeResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, SetSecretData, SetSecretError, SetSecretResponse, StreamData, SystemData, SystemResponse, TestServerData, TestServerError, TestServerResponse, TrafficData, TrafficError, TrafficResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -864,6 +864,79 @@ export const deleteTokenMutation = (options?: Partial<Options<DeleteTokenData>>)
     const mutationOptions: UseMutationOptions<DeleteTokenResponse, DeleteTokenError, Options<DeleteTokenData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await deleteToken({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const listSecretsQueryKey = (options?: Options<ListSecretsData>) => createQueryKey('listSecrets', options);
+
+/**
+ * List Secrets
+ */
+export const listSecretsOptions = (options?: Options<ListSecretsData>) => queryOptions<ListSecretsResponse, DefaultError, ListSecretsResponse, ReturnType<typeof listSecretsQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listSecrets({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listSecretsQueryKey(options)
+});
+
+/**
+ * Delete Secret
+ */
+export const deleteSecretMutation = (options?: Partial<Options<DeleteSecretData>>): UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> => {
+    const mutationOptions: UseMutationOptions<DeleteSecretResponse, DeleteSecretError, Options<DeleteSecretData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteSecret({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Set Secret
+ *
+ * Create the secret, or replace its value. The value is encrypted and cannot be read back.
+ */
+export const setSecretMutation = (options?: Partial<Options<SetSecretData>>): UseMutationOptions<SetSecretResponse, SetSecretError, Options<SetSecretData>> => {
+    const mutationOptions: UseMutationOptions<SetSecretResponse, SetSecretError, Options<SetSecretData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await setSecret({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Test Server
+ *
+ * Connect to the server the way a dottie would (headers, query and secrets filled in) and list its tools.
+ */
+export const testServerMutation = (options?: Partial<Options<TestServerData>>): UseMutationOptions<TestServerResponse, TestServerError, Options<TestServerData>> => {
+    const mutationOptions: UseMutationOptions<TestServerResponse, TestServerError, Options<TestServerData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await testServer({
                 ...options,
                 ...fnOptions,
                 throwOnError: true
