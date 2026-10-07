@@ -82,6 +82,24 @@ class Dottie(Base):
     skills: Mapped[list[Skill]] = relationship(secondary="dottie_skills", order_by=Skill.name)
 
 
+class Secret(Base):
+    """A value a user keeps for their dotties (an API key for an MCP server). Write-only: only the app reads it back,
+    to fill it into a connection; the API only ever shows its name and a hint."""
+
+    __tablename__ = "secrets"
+    __table_args__ = (UniqueConstraint("owner_id", "name"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(40))
+    ciphertext: Mapped[str] = mapped_column(Text)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # the last characters, to tell two keys apart
+    created_at: Mapped[datetime] = _now()
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
 class ApiToken(Base):
     """A personal access token: lets a user's other tools (an MCP client) act as them. Only its hash is kept."""
 

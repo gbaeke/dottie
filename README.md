@@ -103,6 +103,27 @@ On Azure: `WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... scripts/azure-deplo
 generates the session secret, and adds the app's address in WorkOS. `WORKOS_CLIENT_ID= scripts/azure-deploy.sh` turns
 sign-in off again. The gateway app never needs them: it answers sandboxes with run tokens.
 
+## Secrets and MCP servers
+
+A dottie can use external MCP servers (search, docs, your own tools). Credentials for them live in the user's **secret
+store**, never in a server's URL or config:
+
+- **Store.** On the Connect page a user saves a value under a name (`tavily`). It is encrypted in the database (`SECRETS_KEY`)
+  and **write-only**: the API shows a name and the last characters, and never gives the value back. A secret that an MCP
+  server uses cannot be deleted until it is removed there. Secrets belong to a user.
+- **Use.** A server has a `url`, `headers` and `query` parameters. Any value may contain `{{secret:NAME}}`, which the app
+  fills in when it connects (`engine/mcp.py`), so the sandbox never sees it. A header or query parameter that looks like a
+  credential (key, token, secret, auth, ...) or a password in the URL is refused unless it is a reference.
+  Example for [Tavily](https://mcpservers.org/servers/tavily-mcp-server): url `https://mcp.tavily.com/mcp/`, header
+  `Authorization: Bearer {{secret:tavily}}`.
+- **Check.** "Test connection" in the editor connects like a dottie would and lists the tools. A server that cannot be reached
+  or lacks a secret shows up as a problem in the dottie's activity feed.
+- **Earlier configs.** A key saved inside a URL before secrets existed is moved into the owner's store at startup.
+- **The key.** `SECRETS_KEY` (made for you locally; on Azure the deploy script makes it once and keeps it in
+  `.azure/<resource group>.env`, so back that file up). Changing it makes stored secrets unreadable. Both Azure apps get it,
+  because in sandbox mode the tools run in the gateway. The cipher sits in `engine/secrets.py`; a key held in Key Vault would
+  replace only that class.
+
 ## Use dotties from other agents (MCP)
 
 The app serves MCP over streamable HTTP at `/mcp/` (with sign-in on, send a personal access token as a Bearer token). Tools: `list_dotties`, `ask_dottie` (sends a message, waits for the

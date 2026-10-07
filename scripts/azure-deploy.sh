@@ -19,6 +19,9 @@ if [ -n "${WORKOS_CLIENT_ID:-}" ]; then
   [ -n "${WORKOS_API_KEY:-}" ] || { echo "WORKOS_CLIENT_ID is set: also set WORKOS_API_KEY." >&2; exit 1; }
   SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -base64 32)}"
 fi
+# the key that encrypts users' secrets: made once and kept (the deployment state holds it: losing it makes the stored
+# secrets unreadable, so back that file up)
+SECRETS_KEY="${SECRETS_KEY:-$(openssl rand -base64 32)}"
 save_state
 
 out() { az deployment group show -g "$RG" -n infra --query "properties.outputs.$1.value" -o tsv; }
@@ -35,7 +38,7 @@ docker push "$IMAGE"
 # the sandboxes have no fixed address). The app is the UI, API and the clock, and keeps its IP rules.
 echo "== Gateway (app.bicep, serve=internal)"
 GATE=$(az deployment group create -g "$RG" -n gate -f infra/app.bicep \
-  -p name=dottie-gate serve=internal agentMode="${AGENT_MODE:-sandbox}" location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" \
+  -p name=dottie-gate serve=internal agentMode="${AGENT_MODE:-sandbox}" secretsKey="$SECRETS_KEY" location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" \
   --query properties.outputs.fqdn.value -o tsv)
 
 echo "== App (app.bicep)"
@@ -43,7 +46,7 @@ FQDN=$(az deployment group create -g "$RG" -n app -f infra/app.bicep \
   -p location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" ipRules="$(ip_rules_json)" agentMode="${AGENT_MODE:-sandbox}" \
   gatewayUrl="https://$GATE" \
   workosClientId="${WORKOS_CLIENT_ID:-}" workosApiKey="${WORKOS_API_KEY:-}" sessionSecret="${SESSION_SECRET:-}" \
-  allowedUsers="${ALLOWED_USERS:-}" --query properties.outputs.fqdn.value -o tsv)
+  allowedUsers="${ALLOWED_USERS:-}" secretsKey="$SECRETS_KEY" --query properties.outputs.fqdn.value -o tsv)
 
 if [ -n "${WORKOS_CLIENT_ID:-}" ]; then  # the app's address is where WorkOS may send people back to after sign-in
   scripts/workos-uris.sh add "https://$FQDN" ||

@@ -22,6 +22,7 @@ from .mcp import load_mcp_tools
 from .runs import complete_run, describe
 from .sandbox_agent import SandboxAgent
 from .sandboxes import LazySandbox, SandboxProvider
+from .secrets import SecretStore
 from .tools import RunContext, build_tools, record
 
 log = logging.getLogger(__name__)
@@ -36,8 +37,10 @@ class Runner:
         sessions: sessionmaker[Session],
         provider: SandboxProvider,
         model_factory: ModelFactory,
+        secrets: SecretStore | None = None,
     ):
         self.settings, self.sessions, self.provider, self.model_factory = settings, sessions, provider, model_factory
+        self.secrets = secrets
         # Two ways to run the agent: its loop in this process (the sandbox is only its computer), or the loop in the
         # sandbox itself (this process then only wakes it and waits). The second needs a sandbox to run in.
         self.agent_in_sandbox = settings.agent_mode == "sandbox" and provider.name != "none"
@@ -123,7 +126,11 @@ class Runner:
 
         wiki = WikiFiles(self.sessions, dottie_id)
         ctx = RunContext(self.sessions, dottie_id, run_id, depth, self.settings.max_message_depth)
-        mcp_tools = await load_mcp_tools(servers, public_only=self.settings.auth_enabled)
+        mcp_tools, problems = await load_mcp_tools(
+            servers, owner_id=dottie.owner_id, store=self.secrets, public_only=self.settings.auth_enabled
+        )
+        for problem in problems:  # the user sees why a server's tools are missing
+            record(self.sessions, dottie_id, run_id, "error", problem)
         conn = await self._connect()
         try:
             agent = build_agent(

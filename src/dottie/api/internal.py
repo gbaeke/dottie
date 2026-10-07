@@ -62,10 +62,19 @@ async def run_tools(request: Request, run: RunInfo) -> dict[str, BaseTool]:
         with sessions() as s:
             dottie = s.get_one(Dottie, run.dottie_id)
             toolkits, servers = [t for t in dottie.tools if t != "shell"], list(dottie.mcp_servers)
+            owner_id = dottie.owner_id
             depth = max((m.depth for m in s.scalars(select(Message).where(Message.run_id == run.run_id))), default=0)
         ctx = RunContext(sessions, run.dottie_id, run.run_id, depth, request.app.state.settings.max_message_depth)
         tools: list[BaseTool] = [StructuredTool.from_function(f) for f in build_tools(ctx, toolkits)]
-        tools += await load_mcp_tools(servers, public_only=request.app.state.settings.auth_enabled)
+        mcp_tools, problems = await load_mcp_tools(
+            servers,
+            owner_id=owner_id,
+            store=request.app.state.secret_store,
+            public_only=request.app.state.settings.auth_enabled,
+        )
+        tools += mcp_tools
+        for problem in problems:  # the user sees why a server's tools are missing
+            record(sessions, run.dottie_id, run.run_id, "error", problem)
         if len(cache) > 200:  # runs whose agent died without saying so
             cache.pop(next(iter(cache)))
         cache[run.run_id] = {t.name: t for t in tools}

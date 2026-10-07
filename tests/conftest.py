@@ -3,6 +3,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
+from pydantic import SecretStr
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 
@@ -47,6 +48,7 @@ def settings(database) -> Settings:
     settings = settings_without_env_file(
         database_url=database,
         engine_enabled=False,
+        secrets_key=SecretStr("test-secrets-key"),
         sandbox_backend="none",
         llm_base_url="http://fake/v1",
         llm_model="fake",

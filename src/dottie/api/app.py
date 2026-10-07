@@ -14,11 +14,14 @@ from ..db import make_engine, run_migrations
 from ..engine import checkpoints, seed
 from ..engine.agent import ModelFactory, build_model
 from ..engine.core import Engine
+from ..engine.mcp import looks_secret
 from ..engine.runner import Runner
 from ..engine.sandboxes import SandboxProvider, make_provider
+from ..engine.secrets import SecretCipher, SecretStore, repair_inline_credentials
 from ..mcp_server import McpAccess, build_mcp
 from ..middleware import RequestContext
-from . import activity, chat, dotties, internal, schedules, skills, system, tokens, wiki
+from . import activity, chat, dotties, internal, schedules, secrets, skills, system, tokens, wiki
+from . import mcp as mcp_api
 from .errors import ApiError, install_handlers
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository (or /app in the image): alembic.ini, frontend/dist
@@ -49,7 +52,14 @@ def create_app(
         with sessions() as s:
             seed.seed_skills(s)
             s.commit()
-        engine = Engine(settings, db, sessions, Runner(settings, sessions, app.state.provider, model_factory))
+        cipher = (
+            SecretCipher(settings.secrets_key.get_secret_value()) if settings.secrets_key.get_secret_value() else None
+        )
+        app.state.secret_store = SecretStore(sessions, cipher)
+        if cipher:  # credentials saved inside MCP server URLs before secrets existed move into the store
+            repair_inline_credentials(sessions, app.state.secret_store, looks_secret)
+        runner = Runner(settings, sessions, app.state.provider, model_factory, app.state.secret_store)
+        engine = Engine(settings, db, sessions, runner)
         app.state.engine = engine
         if settings.engine_enabled and settings.serve == "all":  # the gateway only answers sandboxes
             engine.start()
@@ -87,7 +97,7 @@ def create_app(
     app.include_router(internal.router)  # what the agent in a sandbox calls back to
     if settings.serve == "all":
         api.include_router(auth.me_router)
-        for module in (dotties, chat, wiki, schedules, skills, activity, system, tokens):
+        for module in (dotties, chat, wiki, schedules, skills, activity, system, tokens, secrets, mcp_api):
             api.include_router(module.router)
     app.include_router(api)
     if settings.serve == "all":

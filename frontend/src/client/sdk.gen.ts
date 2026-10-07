@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateConversationData, CreateConversationErrors, CreateConversationResponses, CreateDottieData, CreateDottieErrors, CreateDottieResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, CreateSkillData, CreateSkillErrors, CreateSkillResponses, CreateTokenData, CreateTokenErrors, CreateTokenResponses, DeleteConversationData, DeleteConversationErrors, DeleteConversationResponses, DeleteDottieData, DeleteDottieErrors, DeleteDottieResponses, DeletePageData, DeletePageErrors, DeletePageResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DeleteTokenData, DeleteTokenErrors, DeleteTokenResponses, GetDottieData, GetDottieErrors, GetDottieResponses, HealthData, HealthResponses, InboxData, InboxErrors, InboxResponses, ListAllData, ListAllResponses, ListConversationsData, ListConversationsErrors, ListConversationsResponses, ListDottieEventsData, ListDottieEventsErrors, ListDottieEventsResponses, ListDottiesData, ListDottiesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPagesData, ListPagesErrors, ListPagesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSkillsData, ListSkillsResponses, ListTemplatesData, ListTemplatesResponses, ListTokensData, ListTokensResponses, ListToolkitsData, ListToolkitsResponses, MarkReadData, MarkReadErrors, MarkReadResponses, MeData, MeResponses, ReadInboxData, ReadInboxResponses, ReadPageData, ReadPageErrors, ReadPageResponses, RunNowData, RunNowErrors, RunNowResponses, SendMessageData, SendMessageErrors, SendMessageResponses, StreamData, StreamResponses, SystemData, SystemResponses, TrafficData, TrafficErrors, TrafficResponses, UpdateDottieData, UpdateDottieErrors, UpdateDottieResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, WritePageData, WritePageErrors, WritePageResponses } from './types.gen';
+import type { CreateConversationData, CreateConversationErrors, CreateConversationResponses, CreateDottieData, CreateDottieErrors, CreateDottieResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, CreateSkillData, CreateSkillErrors, CreateSkillResponses, CreateTokenData, CreateTokenErrors, CreateTokenResponses, DeleteConversationData, DeleteConversationErrors, DeleteConversationResponses, DeleteDottieData, DeleteDottieErrors, DeleteDottieResponses, DeletePageData, DeletePageErrors, DeletePageResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DeleteTokenData, DeleteTokenErrors, DeleteTokenResponses, GetDottieData, GetDottieErrors, GetDottieResponses, HealthData, HealthResponses, InboxData, InboxErrors, InboxResponses, ListAllData, ListAllResponses, ListConversationsData, ListConversationsErrors, ListConversationsResponses, ListDottieEventsData, ListDottieEventsErrors, ListDottieEventsResponses, ListDottiesData, ListDottiesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPagesData, ListPagesErrors, ListPagesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSecretsData, ListSecretsResponses, ListSkillsData, ListSkillsResponses, ListTemplatesData, ListTemplatesResponses, ListTokensData, ListTokensResponses, ListToolkitsData, ListToolkitsResponses, MarkReadData, MarkReadErrors, MarkReadResponses, MeData, MeResponses, ReadInboxData, ReadInboxResponses, ReadPageData, ReadPageErrors, ReadPageResponses, RunNowData, RunNowErrors, RunNowResponses, SendMessageData, SendMessageErrors, SendMessageResponses, SetSecretData, SetSecretErrors, SetSecretResponses, StreamData, StreamResponses, SystemData, SystemResponses, TestServerData, TestServerErrors, TestServerResponses, TrafficData, TrafficErrors, TrafficResponses, UpdateDottieData, UpdateDottieErrors, UpdateDottieResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, WritePageData, WritePageErrors, WritePageResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -300,3 +300,41 @@ export const createToken = <ThrowOnError extends boolean = false>(options: Optio
  * Delete Token
  */
 export const deleteToken = <ThrowOnError extends boolean = false>(options: Options<DeleteTokenData, ThrowOnError>): RequestResult<DeleteTokenResponses, DeleteTokenErrors, ThrowOnError> => (options.client ?? client).delete<DeleteTokenResponses, DeleteTokenErrors, ThrowOnError>({ url: '/api/tokens/{token_id}', ...options });
+
+/**
+ * List Secrets
+ */
+export const listSecrets = <ThrowOnError extends boolean = false>(options?: Options<ListSecretsData, ThrowOnError>): RequestResult<ListSecretsResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListSecretsResponses, unknown, ThrowOnError>({ url: '/api/secrets', ...options });
+
+/**
+ * Delete Secret
+ */
+export const deleteSecret = <ThrowOnError extends boolean = false>(options: Options<DeleteSecretData, ThrowOnError>): RequestResult<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError> => (options.client ?? client).delete<DeleteSecretResponses, DeleteSecretErrors, ThrowOnError>({ url: '/api/secrets/{name}', ...options });
+
+/**
+ * Set Secret
+ *
+ * Create the secret, or replace its value. The value is encrypted and cannot be read back.
+ */
+export const setSecret = <ThrowOnError extends boolean = false>(options: Options<SetSecretData, ThrowOnError>): RequestResult<SetSecretResponses, SetSecretErrors, ThrowOnError> => (options.client ?? client).put<SetSecretResponses, SetSecretErrors, ThrowOnError>({
+    url: '/api/secrets/{name}',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Test Server
+ *
+ * Connect to the server the way a dottie would (headers, query and secrets filled in) and list its tools.
+ */
+export const testServer = <ThrowOnError extends boolean = false>(options: Options<TestServerData, ThrowOnError>): RequestResult<TestServerResponses, TestServerErrors, ThrowOnError> => (options.client ?? client).post<TestServerResponses, TestServerErrors, ThrowOnError>({
+    url: '/api/mcp-servers/test',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});

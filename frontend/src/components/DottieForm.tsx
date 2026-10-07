@@ -1,9 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import { Plus, X } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { listSkillsOptions, listToolkitsOptions } from '@/client/@tanstack/react-query.gen'
 import type { DottieIn } from '@/client/types.gen'
 import { DottieAvatar } from '@/components/DottieAvatar'
+import { McpServers } from '@/components/McpServers'
 import { hueStyle } from '@/lib/hue'
 import { HUES } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -167,58 +167,10 @@ export function DottieForm({
       <section className="card space-y-3">
         <h2 className="font-semibold">Connections (MCP servers)</h2>
         <p className="text-xs text-fg-muted">
-          Remote MCP servers (streamable HTTP). Their tools become this dottie's tools.
+          Remote MCP servers (streamable HTTP). Their tools become this dottie's tools. Put API keys in a secret, not in
+          the URL or a header.
         </p>
-        {servers.map((s, i) => (
-          <div key={i} className="flex gap-2">
-            <input
-              className="input w-40"
-              aria-label="Server name"
-              placeholder="name"
-              pattern="[a-zA-Z][a-zA-Z0-9_\-]{0,39}"
-              value={s.name}
-              onChange={(e) =>
-                set(
-                  'mcp_servers',
-                  servers.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
-                )
-              }
-            />
-            <input
-              className="input"
-              type="url"
-              aria-label="Server URL"
-              placeholder="https://example.com/mcp"
-              value={s.url}
-              onChange={(e) =>
-                set(
-                  'mcp_servers',
-                  servers.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)),
-                )
-              }
-            />
-            <button
-              type="button"
-              className="btn-ghost p-1.5"
-              aria-label="Remove server"
-              onClick={() =>
-                set(
-                  'mcp_servers',
-                  servers.filter((_, j) => j !== i),
-                )
-              }
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          className="btn-ghost"
-          onClick={() => set('mcp_servers', [...servers, { name: '', url: '' }])}
-        >
-          <Plus className="size-4" /> Add a server
-        </button>
+        <McpServers initial={servers} onChange={(list) => set('mcp_servers', list)} />
         <details className="text-fg-muted">
           <summary className="cursor-pointer text-xs">Advanced</summary>
           <div className="mt-2 max-w-sm">
