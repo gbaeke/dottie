@@ -71,6 +71,11 @@ disk), starts it with a token for the run and waits. The runtime calls back to `
   the app; `/wiki`, `/skills`, `/events` and `/finish`.
 - The sandbox holds no database or model credentials. Its token is random per run and stops working when the run ends.
   Code the agent runs in its sandbox can read that token, and use it for what the run's own tools allow.
+- **Logs and recovery.** The runtime logs what it does (run started and finished, tickets taken, failures, with times) to
+  `/workspace/.dottie/last.log` in the sandbox, and a failed or timed-out run includes the tail of that log in the message the
+  user sees. The app checks every 15 s that the runtime is alive and takes its tickets; a runtime that does not is restarted
+  once, and a run is given up inside the sandbox when the app's time limit passes, so one hung run cannot block the ones behind
+  it. The idle reaper never stops a sandbox whose dottie is being woken.
 - On Azure a second app from the same image (`SERVE=internal`, `dottie-gate`) serves only `/internal`. It is open to the
   internet because sandboxes have no fixed address, while the main app keeps its IP rules.
 

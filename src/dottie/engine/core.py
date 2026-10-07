@@ -33,6 +33,7 @@ class Engine:
         self.pool = ThreadPoolExecutor(settings.max_workers, thread_name_prefix="dottie")
         self.active: dict[int, Future[int]] = {}
         self._lock = threading.Lock()
+        self.stopping: set[int] = set()  # dotties whose sandbox is being stopped: they are not woken until it is done
         self._stop = threading.Event()
         self._nudge = threading.Event()  # set by the API when something new is waiting: no need to wait for the poll
         self._thread: threading.Thread | None = None
@@ -110,7 +111,7 @@ class Engine:
         woken: list[int] = []
         with self._lock:
             for dottie_id in waiting:
-                if dottie_id not in self.active:
+                if dottie_id not in self.active and dottie_id not in self.stopping:
                     future = self.pool.submit(self.runner.wake, dottie_id)
                     self.active[dottie_id] = future
                     future.add_done_callback(lambda _, d=dottie_id: self._done(d))
@@ -136,7 +137,12 @@ class Engine:
             ).all()
         stopped: list[int] = []
         for dottie_id, ref in rows:
+            with self._lock:  # decided together with the dispatcher: a dottie being woken is not stopped, and the
+                if dottie_id in self.active:  # other way round (stopping takes seconds)
+                    continue
+                self.stopping.add(dottie_id)
             try:
+                self.runner.sandbox_agent.forget(dottie_id)
                 if ref is not None and self.runner.provider.state(ref) not in ("stopped", "none"):
                     self.runner.provider.sleep(ref)
                     stopped.append(dottie_id)
@@ -144,6 +150,9 @@ class Engine:
                 record(self.sessions, dottie_id, None, "sleep", "Went to sleep.")
             except Exception:
                 log.exception("could not stop the sandbox of dottie %s", dottie_id)
+            finally:
+                with self._lock:
+                    self.stopping.discard(dottie_id)
         return stopped
 
     def reconcile(self) -> list[int]:

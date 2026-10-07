@@ -5,6 +5,7 @@ starts the runtime with a token for this run, and waits. The agent loop, the she
 sandbox; the model, the wiki, the tools and the feed are reached through `api/internal.py`.
 """
 
+import contextlib
 import hashlib
 import importlib.metadata
 import json
@@ -31,6 +32,7 @@ PIDFILE = f"{WORKDIR}/.dottie/runtime.pid"
 RUNTIME_PACKAGES = ["deepagents", "langchain-openai", "langgraph-checkpoint-sqlite", "httpx"]
 POLL_SECONDS = 0.3  # how often a waiting run looks at whether the agent has finished
 WARM_MARGIN = 15  # trust a sandbox to be running this many seconds less than the idle window
+STUCK_CHECKS = 2  # probes in a row that find the ticket still waiting: the runtime is stuck
 ALIVE_CHECK_SECONDS = 15  # also what keeps the sandbox from counting as idle while the agent thinks
 INSTALL_TIMEOUT = 900
 
@@ -103,6 +105,10 @@ class SandboxAgent:
             self._warm[dottie_id] = (dottie.sandbox_ref, until)
         return outcome
 
+    def forget(self, dottie_id: int) -> None:
+        """Its sandbox is about to be stopped: do not trust it to be running any more."""
+        self._warm.pop(dottie_id, None)
+
     def _mark_awake(self, dottie_id: int) -> None:
         with self.sessions() as s:
             s.get_one(Dottie, dottie_id).sandbox_awake = True
@@ -154,15 +160,27 @@ class SandboxAgent:
     def _read(sandbox, name: str) -> str:
         return sandbox.execute(f"cat {HOME}/{name} 2>/dev/null || true").output.strip()
 
+    def _daemon_command(self) -> str:
+        """The shell command that starts the runtime in the background and records its process id."""
+        return (
+            f"PYTHONPATH={HOME}/app setsid nohup {HOME}/venv/bin/python -m dottie_runtime "
+            f"> {WORKDIR}/.dottie/last.log 2>&1 < /dev/null & echo $! > {PIDFILE}"
+        )
+
     def _start(self, sandbox, token: str, run_id: int) -> str:
         """Hand the run to the runtime in the sandbox, starting it first if it is not running, in one call. Returns the
         runtime's process id (to watch that it stays alive until the run is over)."""
-        ticket = json.dumps({"api": self.settings.callback_url + "/internal", "token": token})
+        ticket = json.dumps(
+            {
+                "api": self.settings.callback_url + "/internal",
+                "token": token,
+                "timeout": self.settings.run_timeout_seconds,  # the runtime gives up on a hung run by itself
+            }
+        )
         command = (
             f"mkdir -p {INBOX} && cd {WORKDIR} && "
-            f"if ! {{ [ -f {PIDFILE} ] && kill -0 $(cat {PIDFILE}) 2>/dev/null; }}; then "
-            f"PYTHONPATH={HOME}/app setsid nohup {HOME}/venv/bin/python -m dottie_runtime "
-            f"> {WORKDIR}/.dottie/last.log 2>&1 < /dev/null & echo $! > {PIDFILE}; fi && "
+            f"if ! {{ [ -f {PIDFILE} ] && kill -0 $(cat {PIDFILE}) 2>/dev/null; }}; "
+            f"then {self._daemon_command()}; fi && "
             f"printf '%s' {shlex.quote(ticket)} > {INBOX}/{run_id}.tmp && "
             f"mv {INBOX}/{run_id}.tmp {INBOX}/{run_id}.run && cat {PIDFILE}"
         )
@@ -172,9 +190,37 @@ class SandboxAgent:
             raise RuntimeError(f"Could not start my runtime: {started.output[-500:]}")
         return pid
 
+    def _restart_runtime(self, sandbox, old_pid: str) -> str:
+        """Replace a runtime that does not take its tickets (hung on a connection that died when the sandbox was
+        stopped, say). The ticket stays in the inbox; the new runtime picks it up."""
+        command = (
+            f"kill -9 {old_pid} 2>/dev/null; rm -f {PIDFILE}; mkdir -p {INBOX} && cd {WORKDIR} && "
+            f"{self._daemon_command()}; sleep 1; cat {PIDFILE}"
+        )
+        done = sandbox.execute(command)
+        pid = done.output.strip().splitlines()[-1] if done.output.strip() else ""
+        if not pid.isdigit():
+            raise RuntimeError(f"Could not restart my runtime: {done.output[-500:]}")
+        return pid
+
+    def _log_tail(self, sandbox, lines: int = 25) -> str:
+        try:
+            return sandbox.execute(f"tail -n {lines} {WORKDIR}/.dottie/last.log").output.strip()
+        except Exception:
+            return ""
+
+    def _probe(self, sandbox, pid: str, run_id: int) -> tuple[bool, bool]:
+        """(is the runtime alive, is this run's ticket still waiting in the inbox)."""
+        done = sandbox.execute(
+            f"kill -0 {pid} 2>/dev/null && echo alive; [ -f {INBOX}/{run_id}.run ] && echo waiting; true"
+        )
+        return "alive" in done.output, "waiting" in done.output
+
     def _wait(self, sandbox, run_id: int, pid: str) -> tuple[str, str]:
         deadline = time.monotonic() + self.settings.run_timeout_seconds
         next_check = time.monotonic() + ALIVE_CHECK_SECONDS
+        unreachable = waiting_checks = 0
+        restarted = False
         while True:
             time.sleep(POLL_SECONDS)
             status = self._status(run_id)
@@ -182,13 +228,33 @@ class SandboxAgent:
                 return status, ""  # the agent reported its end itself
             now = time.monotonic()
             if now > deadline:
-                sandbox.execute(f"kill {pid} 2>/dev/null || true")
-                return "failed", f"I ran out of time ({self.settings.run_timeout_seconds}s) and stopped."
-            if now >= next_check:
-                next_check = now + ALIVE_CHECK_SECONDS
-                if sandbox.execute(f"kill -0 {pid}").exit_code != 0 and self._status(run_id) == "running":
-                    tail = sandbox.execute(f"tail -n 25 {WORKDIR}/.dottie/last.log").output.strip()
-                    return "failed", f"My runtime stopped without finishing.\n{tail}"
+                with contextlib.suppress(Exception):
+                    sandbox.execute(f"kill {pid} 2>/dev/null || true")
+                tail = self._log_tail(sandbox, 15)
+                message = f"I ran out of time ({self.settings.run_timeout_seconds}s) and stopped."
+                return "failed", message + (f"\nMy runtime's log:\n{tail}" if tail else "")
+            if now < next_check:
+                continue
+            next_check = now + ALIVE_CHECK_SECONDS
+            try:
+                alive, waiting = self._probe(sandbox, pid, run_id)
+                unreachable = 0
+            except Exception as e:  # stopped under us (the platform answers 409) or unreachable: twice in a row
+                unreachable += 1
+                log.warning("probe of the sandbox failed for run %s: %s", run_id, e)
+                if unreachable >= 2:
+                    return "failed", "My computer was stopped or could not be reached while I was working. Try again."
+                continue
+            if not alive and self._status(run_id) == "running":
+                return "failed", f"My runtime stopped without finishing.\n{self._log_tail(sandbox)}"
+            waiting_checks = waiting_checks + 1 if waiting else 0
+            if waiting_checks >= STUCK_CHECKS and not restarted:
+                restarted = True  # once per run: a second hang is a failure, not a loop
+                log.warning("run %s: its ticket is not taken; restarting the runtime of the sandbox", run_id)
+                try:
+                    pid = self._restart_runtime(sandbox, pid)
+                except Exception as e:
+                    return "failed", f"My runtime did not take the task and could not be restarted: {e}"
 
     def _status(self, run_id: int) -> str:
         with self.sessions() as s:

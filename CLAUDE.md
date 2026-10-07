@@ -88,3 +88,6 @@ uv add PKG / uv add --dev PKG     # never pip; never edit uv.lock by hand
 - Credentials never go into a URL, a config or a log: they are secrets (`engine/secrets.py`), referenced as
   `{{secret:NAME}}` and filled in only inside the app when connecting. Log MCP servers with `mcp.describe()` (host and path),
   never the URL. The secrets API never returns a value; keep it that way, and add a test when you add an endpoint near it.
+- Stopping a sandbox takes seconds. Anything that stops one (`Engine.reap_idle`) must exclude dotties that are being woken
+  (`engine.active`) and mark them `engine.stopping` so the dispatcher leaves them alone; the platform answers 409 to a run
+  that is still using a stopped sandbox.

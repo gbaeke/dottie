@@ -7,6 +7,7 @@ runs on. Its memory of the conversation (the LangGraph checkpoints) is a SQLite 
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
@@ -27,6 +28,8 @@ from .api import Api
 from .files import RemoteFiles
 from .filters import ToolFilter
 from .tools import remote_tools
+
+log = logging.getLogger(__name__)
 
 
 class Feed:
@@ -53,8 +56,8 @@ def proxy_model(api: Api, context: dict[str, Any]) -> BaseChatModel:
         base_url=f"{api.base_url}/llm",
         api_key=api.token,  # pyright: ignore[reportArgumentType]
         model=context["model"],
-        timeout=120,
-        max_retries=2,
+        timeout=90,  # a model call that takes longer is stuck (a connection that died with the sandbox, say)
+        max_retries=1,
         http_async_client=httpx.AsyncClient(timeout=120),
         **extra,
     )
@@ -131,10 +134,13 @@ def call_text(call: ToolCall) -> str:
 
 async def run_safely(api: Api, **options: Any) -> None:
     """`run`, and when it fails, say so to the app so the user is told (a dead agent can say nothing else)."""
+    started = time.monotonic()
+    log.info("run started")
     try:
         await run(api, **options)
+        log.info("run finished in %.1f s", time.monotonic() - started)
     except Exception as e:
-        traceback.print_exc()
+        log.exception("run failed after %.1f s", time.monotonic() - started)
         await api.asy.post("/finish", json={"status": "failed", "reply": f"I could not finish: {e}"})
 
 
@@ -163,17 +169,40 @@ async def serve(
             await asyncio.sleep(poll)
             continue
         ticket = json.loads(tickets[0].read_text())
+        waited = time.time() - tickets[0].stat().st_mtime
         tickets[0].unlink()  # the token is only on disk until it is picked up
+        log.info("took ticket %s (it waited %.1f s)", tickets[0].stem, waited)
         api = Api.connect(ticket["api"], ticket["token"])
         try:
-            await run_safely(api, workdir=workdir, state_db=state_db, **options)
+            # a run that hangs must not hold up the tickets behind it: the app's own limit applies in here too
+            await asyncio.wait_for(
+                run_safely(api, workdir=workdir, state_db=state_db, **options), ticket.get("timeout")
+            )
+        except TimeoutError:
+            log.error("run took longer than %s s: given up", ticket.get("timeout"))
+            await _report_failure(ticket, "I ran out of time and stopped.")
         finally:
             await api.close()
         last, handled = time.monotonic(), handled + 1
 
 
+async def _report_failure(ticket: dict[str, Any], reply: str) -> None:
+    """Best effort, on a fresh connection (the one the run used may be the thing that hung)."""
+    api = Api.connect(ticket["api"], ticket["token"])
+    try:
+        await asyncio.wait_for(api.asy.post("/finish", json={"status": "failed", "reply": reply}), 20)
+    except Exception:
+        log.exception("could not report the failure to the app")
+    finally:
+        await api.close()
+
+
 def cli() -> None:
     """`python -m dottie_runtime serve`: run until idle, handling tickets from `$DOTTIE_WORKDIR/.dottie/inbox`."""
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr, force=True
+    )  # stderr goes to /workspace/.dottie/last.log
+    log.info("runtime started (pid %s)", os.getpid())
     workdir = Path(os.environ.get("DOTTIE_WORKDIR", "/workspace"))
     state = workdir / ".dottie"
     try:
