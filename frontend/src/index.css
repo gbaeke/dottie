@@ -1,0 +1,273 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens: every colour the app uses, once for light and once for dark. Components use the Tailwind names
+ * below (bg-surface, text-fg-muted, border-border, bg-accent ...), never raw colours, so a rebrand is this file only.
+ * Keep text colours at WCAG AA contrast (4.5:1) against bg and surface.
+ */
+:root {
+  --bg: #f8f8f7;
+  --surface: #ffffff;
+  --muted: #f0f0ee;
+  --border: #e2e2df;
+  --fg: #1c1c1e;
+  --fg-muted: #62626a;
+  --accent: #4f46e5;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(79 70 229 / 0.08);
+  --ok: #15803d;
+  --warn: #a16207;
+  --danger: #c62828;
+  --dot-l: 0.7;
+  --dot-ink-l: 0.42;
+  --warm: #fbf7f1;
+}
+.dark {
+  --bg: #18181a;
+  --surface: #222225;
+  --muted: #2c2c30;
+  --border: #3a3a3f;
+  --fg: #f4f4f2;
+  --fg-muted: #a6a6ad;
+  --accent: #a5a1f5;
+  --accent-fg: #18181a;
+  --accent-soft: rgb(165 161 245 / 0.12);
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --danger: #f87171;
+  --dot-l: 0.78;
+  --dot-ink-l: 0.82;
+  --warm: #1d1c1b;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --color-warm: var(--warm);
+  --color-dot: oklch(var(--dot-l) 0.14 var(--dot-hue, 265));
+  --color-dot-soft: oklch(var(--dot-l) 0.14 var(--dot-hue, 265) / 0.16);
+  --color-dot-ink: oklch(var(--dot-ink-l) 0.15 var(--dot-hue, 265));
+  --font-sans: 'Inter Variable', system-ui, sans-serif;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  @apply bg-bg font-sans text-sm text-fg antialiased;
+  color-scheme: light;
+}
+.dark body {
+  color-scheme: dark;
+}
+
+/* the few patterns every screen repeats (Tailwind v4 @utility, so they work with variants and @apply);
+   anything used once stays inline */
+@utility card {
+  @apply rounded-lg border border-border bg-surface p-4;
+}
+@utility btn {
+  @apply inline-flex items-center gap-2 rounded-md px-3 py-1.5 font-medium transition-colors disabled:opacity-50;
+}
+@utility btn-primary {
+  @apply btn bg-accent text-accent-fg hover:opacity-90;
+}
+@utility btn-ghost {
+  @apply btn text-fg-muted hover:bg-muted hover:text-fg;
+}
+@utility input {
+  @apply w-full rounded-md border border-border bg-surface px-3 py-1.5 outline-none focus:border-accent;
+}
+
+@utility chip {
+  @apply inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs text-fg-muted;
+}
+@utility field-label {
+  @apply mb-1 block text-xs font-medium text-fg-muted;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* the dots: avatar states. Every motion is switched off for people who asked for less. */
+@keyframes float-z {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.7);
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(6px, -14px) scale(1.1);
+  }
+}
+@keyframes glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(var(--dot-l) 0.14 var(--dot-hue, 265) / 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 8px oklch(var(--dot-l) 0.14 var(--dot-hue, 265) / 0);
+  }
+}
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes blink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  94% {
+    transform: scaleY(0.1);
+  }
+}
+.anim-z {
+  animation: float-z 3.2s ease-in-out infinite;
+}
+.anim-glow {
+  animation: glow 2.4s ease-out infinite;
+}
+.anim-spin {
+  animation: spin-slow 9s linear infinite;
+}
+.anim-rise {
+  animation: rise 0.25s ease-out both;
+}
+.anim-blink {
+  animation: blink 5s infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  @apply rounded-md bg-muted;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.25), transparent);
+  animation: shimmer 1.4s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .anim-z,
+  .anim-glow,
+  .anim-spin,
+  .anim-rise,
+  .anim-blink,
+  .skeleton::after {
+    animation: none;
+  }
+  .anim-z {
+    opacity: 0.8;
+  }
+}
+
+.prose-dot {
+  @apply text-sm leading-relaxed;
+}
+.prose-dot > :first-child {
+  margin-top: 0;
+}
+.prose-dot > :last-child {
+  margin-bottom: 0;
+}
+.prose-dot p,
+.prose-dot ul,
+.prose-dot ol,
+.prose-dot pre,
+.prose-dot table,
+.prose-dot blockquote {
+  margin: 0.6em 0;
+}
+.prose-dot h1 {
+  @apply mt-4 mb-2 text-lg font-semibold;
+}
+.prose-dot h2 {
+  @apply mt-4 mb-2 text-base font-semibold;
+}
+.prose-dot h3,
+.prose-dot h4 {
+  @apply mt-3 mb-1 text-sm font-semibold;
+}
+.prose-dot ul {
+  list-style: disc;
+  padding-left: 1.25em;
+}
+.prose-dot ol {
+  list-style: decimal;
+  padding-left: 1.25em;
+}
+.prose-dot li {
+  margin: 0.15em 0;
+}
+.prose-dot a {
+  @apply text-accent underline underline-offset-2;
+}
+.prose-dot code {
+  @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+}
+.prose-dot pre {
+  @apply overflow-x-auto rounded-md border border-border bg-muted p-3;
+}
+.prose-dot pre code {
+  @apply bg-transparent p-0;
+}
+.prose-dot blockquote {
+  @apply border-l-2 border-border pl-3 text-fg-muted;
+}
+.prose-dot table {
+  @apply block max-w-full overflow-x-auto border-collapse text-xs;
+}
+.prose-dot th,
+.prose-dot td {
+  @apply border border-border px-2 py-1 text-left;
+}
+.prose-dot th {
+  @apply bg-muted font-medium;
+}
+.prose-dot hr {
+  @apply my-3 border-border;
+}

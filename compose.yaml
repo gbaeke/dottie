@@ -1,0 +1,33 @@
+# Local services. The database:  scripts/db.sh up   (or: docker compose up -d db)
+# The app as its image, like on Azure:  docker compose --profile app up --build
+name: dottie
+
+services:
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: dottie
+      POSTGRES_PASSWORD: dottie  # local only
+      POSTGRES_DB: dottie
+    ports: ["127.0.0.1:54845:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql  # PostgreSQL 18+ images keep their data in a versioned folder below this
+      - ./scripts/db-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dottie"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  app:
+    profiles: [app]
+    build: .
+    env_file: [{ path: .env, required: false }]
+    environment:
+      DATABASE_URL: postgresql://dottie:dottie@db:5432/dottie
+    ports: ["127.0.0.1:8370:8000"]
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:

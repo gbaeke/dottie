@@ -1,0 +1,25 @@
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+
+# Secrets and local state
+.env
+.env.*
+!.env.example
+.azure/
+data/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Editors, OS, agents
+.idea/
+.vscode/
+.DS_Store
+.claude/worktrees/
+.claude/settings.local.json
