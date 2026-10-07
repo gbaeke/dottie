@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import sessionmaker
 
+from .. import auth
 from ..config import Settings, get_settings
 from ..db import make_engine, run_migrations
 from ..engine import checkpoints, seed
@@ -15,9 +16,9 @@ from ..engine.agent import ModelFactory, build_model
 from ..engine.core import Engine
 from ..engine.runner import Runner
 from ..engine.sandboxes import SandboxProvider, make_provider
-from ..mcp_server import build_mcp
+from ..mcp_server import McpAccess, build_mcp
 from ..middleware import RequestContext
-from . import activity, chat, dotties, internal, schedules, skills, system, wiki
+from . import activity, chat, dotties, internal, schedules, skills, system, tokens, wiki
 from .errors import ApiError, install_handlers
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository (or /app in the image): alembic.ini, frontend/dist
@@ -27,6 +28,7 @@ def create_app(
     settings: Settings | None = None,
     model_factory: ModelFactory = build_model,
     provider: SandboxProvider | None = None,
+    workos: auth.WorkOSAuth | None = None,
 ) -> FastAPI:
     """`model_factory` and `provider` are what tests replace: a scripted model, no sandbox."""
     settings = settings or get_settings()
@@ -68,7 +70,12 @@ def create_app(
         generate_unique_id_function=lambda route: route.name,
     )
     app.state.settings = settings
+    app.state.workos = None
     install_handlers(app)
+    if settings.serve == "all" and settings.auth_enabled:  # the gateway answers sandboxes with run tokens, not people
+        app.state.workos = workos or auth.SdkWorkOS(settings)
+        app.add_middleware(auth.AuthMiddleware)
+        app.include_router(auth.build_router())
     app.add_middleware(RequestContext)  # added last, so it runs first: every response gets its id and headers
 
     api = APIRouter(prefix="/api")
@@ -79,11 +86,14 @@ def create_app(
 
     app.include_router(internal.router)  # what the agent in a sandbox calls back to
     if settings.serve == "all":
-        for module in (dotties, chat, wiki, schedules, skills, activity, system):
+        api.include_router(auth.me_router)
+        for module in (dotties, chat, wiki, schedules, skills, activity, system, tokens):
             api.include_router(module.router)
     app.include_router(api)
     if settings.serve == "all":
-        app.mount("/mcp", mcp_app)  # Dottie as an MCP server: see mcp_server.py
+        app.mount(
+            "/mcp", McpAccess(mcp_app, settings.auth_enabled, lambda: app.state.session_factory)
+        )  # see mcp_server.py
         _serve_frontend(app, ROOT / "frontend" / "dist")  # last: its catch-all takes every path left
     return app
 

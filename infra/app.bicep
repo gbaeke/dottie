@@ -29,7 +29,23 @@ param serve string = 'all'
 param agentMode string = 'sandbox'
 
 @description('How a sandbox reaches the app\'s callback API (the gateway\'s address). Needed with agentMode sandbox.')
-param publicUrl string = ''
+param gatewayUrl string = ''
+
+@description('WorkOS client id: the app\'s own sign-in (AuthKit), for many users. Empty: no sign-in.')
+param workosClientId string = ''
+
+@secure()
+param workosApiKey string = ''
+
+@secure()
+@description('Encrypts the session cookie (SESSION_SECRET); changing it signs everyone out.')
+param sessionSecret string = ''
+
+@description('Comma separated emails the app lets in (ALLOWED_USERS). Empty: everyone WorkOS lets in.')
+param allowedUsers string = ''
+
+@description('Most dotties one user may have.')
+param maxDottiesPerUser int = 20
 
 @description('Seconds a dottie\'s sandbox stays running after its last run, for follow-up messages.')
 param sandboxIdleSeconds int = 120
@@ -63,9 +79,24 @@ resource ai 'Microsoft.CognitiveServices/accounts@2025-06-01' existing = {
 // no password: the app signs in with a token for its managed identity (db.py), so this is not a secret
 var databaseUrl = 'postgresql://${identity.name}@${pg.properties.fullyQualifiedDomainName}:5432/dottie?sslmode=require'
 
-var secrets = concat(
-  []
-)
+// sign-in is the app's, not the gateway's (which answers sandboxes with run tokens)
+var withWorkos = serve == 'all' && !empty(workosClientId)
+// PUBLIC_URL: behind the ingress the app sees http, and builds the sign-in callback URL from this instead
+var workosEnv = withWorkos
+  ? concat(
+      [
+        { name: 'WORKOS_CLIENT_ID', value: workosClientId }
+        { name: 'WORKOS_API_KEY', secretRef: 'workos-api-key' }
+        { name: 'SESSION_SECRET', secretRef: 'session-secret' }
+        { name: 'PUBLIC_URL', value: 'https://${name}.${env.properties.defaultDomain}' }
+        { name: 'MAX_DOTTIES_PER_USER', value: string(maxDottiesPerUser) }
+      ],
+      empty(allowedUsers) ? [] : [{ name: 'ALLOWED_USERS', value: allowedUsers }]
+    )
+  : []
+var secrets = withWorkos
+  ? [{ name: 'workos-api-key', value: workosApiKey }, { name: 'session-secret', value: sessionSecret }]
+  : []
 var appEnv = concat(
   [{ name: 'LOG_JSON', value: 'true' }],
   [
@@ -86,7 +117,8 @@ var appEnv = concat(
     { name: 'SERVE', value: serve }
     { name: 'AGENT_MODE', value: agentMode }
   ],
-  empty(publicUrl) ? [] : [{ name: 'PUBLIC_URL', value: publicUrl }]
+  empty(gatewayUrl) ? [] : [{ name: 'GATEWAY_URL', value: gatewayUrl }],
+  workosEnv
 )
 
 resource app 'Microsoft.App/containerApps@2025-01-01' = {

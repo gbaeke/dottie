@@ -56,7 +56,9 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
     def list_dotties() -> str:
         """List the other dotties you can write to, with what each one is for."""
         with ctx.sessions() as s:
-            others = s.scalars(select(Dottie).where(Dottie.id != ctx.dottie_id).order_by(Dottie.name)).all()
+            me = s.get_one(Dottie, ctx.dottie_id)
+            mine = Dottie.owner_id == me.owner_id  # a dottie knows only dotties of the same user
+            others = s.scalars(select(Dottie).where(Dottie.id != ctx.dottie_id, mine).order_by(Dottie.name)).all()
             return "\n".join(f"- {d.slug}: {d.name}, {d.role}" for d in others) or "There are no other dotties."
 
     def send_message(to: str, message: str) -> str:
@@ -71,9 +73,10 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
         if ctx.sends >= MAX_SENDS_PER_RUN:
             return f"Not sent: at most {MAX_SENDS_PER_RUN} messages per waking."
         with ctx.sessions() as s:
-            sender = s.get(Dottie, ctx.dottie_id)
-            recipient = s.scalar(select(Dottie).where(Dottie.slug == to.strip().lower().removeprefix("@")))
-            if sender is None or recipient is None:
+            sender = s.get_one(Dottie, ctx.dottie_id)
+            slug = to.strip().lower().removeprefix("@")
+            recipient = s.scalar(select(Dottie).where(Dottie.slug == slug, Dottie.owner_id == sender.owner_id))
+            if recipient is None:
                 return f"No dottie called {to!r}. Use list_dotties to see who exists."
             if recipient.id == sender.id:
                 return "That is you. Write it in your wiki instead."
@@ -198,6 +201,12 @@ def _is_public(host: str) -> bool:
     except socket.gaierror:
         return False
     return bool(addresses) and all(ipaddress.ip_address(a).is_global for a in addresses)
+
+
+def is_public_url(url: str) -> bool:
+    """An http(s) address on the internet: what the app may call for a user (a web page, an MCP server)."""
+    parsed = urlparse(url)
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname) and _is_public(parsed.hostname or "")
 
 
 def fetch_page(url: str) -> str:

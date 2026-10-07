@@ -7,9 +7,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from ..auth import UserDep
 from ..db import SessionDep
-from ..models import Dottie, WikiPage
-from .errors import ApiError, get_or_404
+from ..models import WikiPage
+from .access import owned_dottie
+from .errors import ApiError
 
 router = APIRouter(prefix="/dotties/{dottie_id}/wiki", tags=["wiki"])
 
@@ -41,8 +43,8 @@ def _page(session: SessionDep, dottie_id: int, path: str) -> WikiPage | None:
 
 
 @router.get("")
-def list_pages(dottie_id: int, session: SessionDep) -> list[PageSummary]:
-    get_or_404(session, Dottie, dottie_id)
+def list_pages(dottie_id: int, session: SessionDep, user: UserDep) -> list[PageSummary]:
+    owned_dottie(session, user, dottie_id)
     pages = session.scalars(select(WikiPage).where(WikiPage.dottie_id == dottie_id).order_by(WikiPage.path))
     return [
         PageSummary(path=p.path, size=len(p.content), updated_by=p.updated_by, updated_at=p.updated_at) for p in pages
@@ -50,7 +52,8 @@ def list_pages(dottie_id: int, session: SessionDep) -> list[PageSummary]:
 
 
 @router.get("/{path:path}")
-def read_page(dottie_id: int, path: str, session: SessionDep) -> PageOut:
+def read_page(dottie_id: int, path: str, session: SessionDep, user: UserDep) -> PageOut:
+    owned_dottie(session, user, dottie_id)
     page = _page(session, dottie_id, path)
     if page is None:
         raise ApiError("not_found", f"No page {path!r} in this wiki", 404)
@@ -64,8 +67,8 @@ def read_page(dottie_id: int, path: str, session: SessionDep) -> PageOut:
 
 
 @router.put("/{path:path}")
-def write_page(dottie_id: int, path: str, data: PageIn, session: SessionDep) -> PageOut:
-    get_or_404(session, Dottie, dottie_id)
+def write_page(dottie_id: int, path: str, data: PageIn, session: SessionDep, user: UserDep) -> PageOut:
+    owned_dottie(session, user, dottie_id)
     page = _page(session, dottie_id, path)
     if page is None:
         page = WikiPage(dottie_id=dottie_id, path=_clean(path), content=data.content, updated_by="user")
@@ -84,7 +87,8 @@ def write_page(dottie_id: int, path: str, data: PageIn, session: SessionDep) -> 
 
 
 @router.delete("/{path:path}", status_code=204)
-def delete_page(dottie_id: int, path: str, session: SessionDep) -> None:
+def delete_page(dottie_id: int, path: str, session: SessionDep, user: UserDep) -> None:
+    owned_dottie(session, user, dottie_id)
     page = _page(session, dottie_id, path)
     if page is None:
         raise ApiError("not_found", f"No page {path!r} in this wiki", 404)

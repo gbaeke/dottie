@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { CreateConversationData, CreateConversationErrors, CreateConversationResponses, CreateDottieData, CreateDottieErrors, CreateDottieResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, CreateSkillData, CreateSkillErrors, CreateSkillResponses, DeleteConversationData, DeleteConversationErrors, DeleteConversationResponses, DeleteDottieData, DeleteDottieErrors, DeleteDottieResponses, DeletePageData, DeletePageErrors, DeletePageResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, GetDottieData, GetDottieErrors, GetDottieResponses, HealthData, HealthResponses, InboxData, InboxErrors, InboxResponses, ListAllData, ListAllResponses, ListConversationsData, ListConversationsErrors, ListConversationsResponses, ListDottieEventsData, ListDottieEventsErrors, ListDottieEventsResponses, ListDottiesData, ListDottiesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPagesData, ListPagesErrors, ListPagesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSkillsData, ListSkillsResponses, ListTemplatesData, ListTemplatesResponses, ListToolkitsData, ListToolkitsResponses, MarkReadData, MarkReadErrors, MarkReadResponses, ReadInboxData, ReadInboxResponses, ReadPageData, ReadPageErrors, ReadPageResponses, RunNowData, RunNowErrors, RunNowResponses, SendMessageData, SendMessageErrors, SendMessageResponses, StreamData, StreamResponses, SystemData, SystemResponses, TrafficData, TrafficErrors, TrafficResponses, UpdateDottieData, UpdateDottieErrors, UpdateDottieResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, WritePageData, WritePageErrors, WritePageResponses } from './types.gen';
+import type { CreateConversationData, CreateConversationErrors, CreateConversationResponses, CreateDottieData, CreateDottieErrors, CreateDottieResponses, CreateScheduleData, CreateScheduleErrors, CreateScheduleResponses, CreateSkillData, CreateSkillErrors, CreateSkillResponses, CreateTokenData, CreateTokenErrors, CreateTokenResponses, DeleteConversationData, DeleteConversationErrors, DeleteConversationResponses, DeleteDottieData, DeleteDottieErrors, DeleteDottieResponses, DeletePageData, DeletePageErrors, DeletePageResponses, DeleteScheduleData, DeleteScheduleErrors, DeleteScheduleResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DeleteTokenData, DeleteTokenErrors, DeleteTokenResponses, GetDottieData, GetDottieErrors, GetDottieResponses, HealthData, HealthResponses, InboxData, InboxErrors, InboxResponses, ListAllData, ListAllResponses, ListConversationsData, ListConversationsErrors, ListConversationsResponses, ListDottieEventsData, ListDottieEventsErrors, ListDottieEventsResponses, ListDottiesData, ListDottiesResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListMessagesData, ListMessagesErrors, ListMessagesResponses, ListPagesData, ListPagesErrors, ListPagesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSchedulesData, ListSchedulesErrors, ListSchedulesResponses, ListSkillsData, ListSkillsResponses, ListTemplatesData, ListTemplatesResponses, ListTokensData, ListTokensResponses, ListToolkitsData, ListToolkitsResponses, MarkReadData, MarkReadErrors, MarkReadResponses, MeData, MeResponses, ReadInboxData, ReadInboxResponses, ReadPageData, ReadPageErrors, ReadPageResponses, RunNowData, RunNowErrors, RunNowResponses, SendMessageData, SendMessageErrors, SendMessageResponses, StreamData, StreamResponses, SystemData, SystemResponses, TrafficData, TrafficErrors, TrafficResponses, UpdateDottieData, UpdateDottieErrors, UpdateDottieResponses, UpdateScheduleData, UpdateScheduleErrors, UpdateScheduleResponses, UpdateSkillData, UpdateSkillErrors, UpdateSkillResponses, WritePageData, WritePageErrors, WritePageResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
     /**
@@ -22,6 +22,13 @@ export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends 
  * Health
  */
 export const health = <ThrowOnError extends boolean = false>(options?: Options<HealthData, ThrowOnError>): RequestResult<HealthResponses, unknown, ThrowOnError> => (options?.client ?? client).get<HealthResponses, unknown, ThrowOnError>({ url: '/api/health', ...options });
+
+/**
+ * Me
+ *
+ * Who is signed in; null when sign-in is off.
+ */
+export const me = <ThrowOnError extends boolean = false>(options?: Options<MeData, ThrowOnError>): RequestResult<MeResponses, unknown, ThrowOnError> => (options?.client ?? client).get<MeResponses, unknown, ThrowOnError>({ url: '/api/me', ...options });
 
 /**
  * List Toolkits
@@ -271,3 +278,25 @@ export const system = <ThrowOnError extends boolean = false>(options?: Options<S
  * through the normal endpoints, so there is one way to read everything.
  */
 export const stream = <ThrowOnError extends boolean = false>(options?: Options<StreamData, ThrowOnError>): RequestResult<StreamResponses, unknown, ThrowOnError> => (options?.client ?? client).get<StreamResponses, unknown, ThrowOnError>({ url: '/api/stream', ...options });
+
+/**
+ * List Tokens
+ */
+export const listTokens = <ThrowOnError extends boolean = false>(options?: Options<ListTokensData, ThrowOnError>): RequestResult<ListTokensResponses, unknown, ThrowOnError> => (options?.client ?? client).get<ListTokensResponses, unknown, ThrowOnError>({ url: '/api/tokens', ...options });
+
+/**
+ * Create Token
+ */
+export const createToken = <ThrowOnError extends boolean = false>(options: Options<CreateTokenData, ThrowOnError>): RequestResult<CreateTokenResponses, CreateTokenErrors, ThrowOnError> => (options.client ?? client).post<CreateTokenResponses, CreateTokenErrors, ThrowOnError>({
+    url: '/api/tokens',
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+    }
+});
+
+/**
+ * Delete Token
+ */
+export const deleteToken = <ThrowOnError extends boolean = false>(options: Options<DeleteTokenData, ThrowOnError>): RequestResult<DeleteTokenResponses, DeleteTokenErrors, ThrowOnError> => (options.client ?? client).delete<DeleteTokenResponses, DeleteTokenErrors, ThrowOnError>({ url: '/api/tokens/{token_id}', ...options });

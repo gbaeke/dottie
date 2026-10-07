@@ -1,8 +1,21 @@
 import { useQuery } from '@tanstack/react-query'
-import { CalendarClock, Inbox, LayoutGrid, Menu, Monitor, Moon, Plus, Sparkles, Sun, X } from 'lucide-react'
+import {
+  CalendarClock,
+  Inbox,
+  LayoutGrid,
+  LogOut,
+  Menu,
+  Monitor,
+  Moon,
+  Plug,
+  Plus,
+  Sparkles,
+  Sun,
+  X,
+} from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
-import { inboxOptions, listDottiesOptions, systemOptions } from '@/client/@tanstack/react-query.gen'
+import { inboxOptions, listDottiesOptions, meOptions, systemOptions } from '@/client/@tanstack/react-query.gen'
 import { DottieAvatar } from '@/components/DottieAvatar'
 import { hueStyle } from '@/lib/hue'
 import { UnreadBadge } from '@/components/ui'
@@ -45,6 +58,22 @@ const linkClass = ({ isActive }: { isActive: boolean }) =>
     isActive ? 'bg-accent-soft font-medium text-accent' : 'text-fg-muted hover:bg-muted hover:text-fg',
   )
 
+/** Who is signed in and the way out; nothing while the app runs without sign-in. */
+function UserMenu() {
+  const { data } = useQuery({ ...meOptions(), staleTime: Infinity })
+  if (!data?.user) return null
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2 text-xs text-fg-muted">
+      <span className="min-w-0 truncate" title={data.user.email}>
+        {data.user.email}
+      </span>
+      <a href="/auth/logout" className="btn-ghost p-1.5" title="Sign out" aria-label="Sign out">
+        <LogOut className="size-4" />
+      </a>
+    </div>
+  )
+}
+
 function Sidebar({ close }: { close: () => void }) {
   const dotties = useQuery(listDottiesOptions())
   const inbox = useQuery(inboxOptions())
@@ -69,6 +98,9 @@ function Sidebar({ close }: { close: () => void }) {
         <NavLink to="/skills" className={linkClass} onClick={close}>
           <Sparkles className="size-4" /> Skills
         </NavLink>
+        <NavLink to="/connect" className={linkClass} onClick={close}>
+          <Plug className="size-4" /> Connect
+        </NavLink>
       </nav>
       <div className="mt-4 flex items-center justify-between px-5 text-xs font-medium tracking-wide text-fg-muted uppercase">
         Dotties
@@ -90,6 +122,7 @@ function Sidebar({ close }: { close: () => void }) {
           New dottie
         </NavLink>
       </nav>
+      <UserMenu />
       <div className="flex items-center justify-between gap-2 border-t border-border p-3 text-xs text-fg-muted">
         <span className="min-w-0 truncate" title="Model and sandbox backend">
           {system.data ? (

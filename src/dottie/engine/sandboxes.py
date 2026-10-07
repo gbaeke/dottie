@@ -127,7 +127,8 @@ class DockerProvider(SandboxProvider):
             _docker("rm", "-f", name)  # made for another network setting; its workspace volume stays
         if self.state(name) == "none":
             made = _docker(
-                *("run", "-d", "--name", name, "--label", "app=dottie", "--memory", "1g", "--cpus", "1"),
+                *("run", "-d", "--name", name, "--label", "app=dottie", "--label", f"user={dottie.owner_id}"),
+                *("--memory", "1g", "--cpus", "1"),
                 *("--network", self.network),
                 *("-v", f"{name}:{WORKDIR}", "-w", WORKDIR, self.image, "sleep", "infinity"),
                 timeout=600,  # the first time pulls the image
@@ -220,7 +221,7 @@ class AcaProvider(SandboxProvider):
             client = self.group.begin_create_sandbox(
                 disk="ubuntu",
                 auto_suspend_seconds=max(300, self.idle_seconds * 2),  # a backstop: the engine stops idle ones sooner
-                labels={"app": "dottie", "dottie": dottie.slug},
+                labels={"app": "dottie", "dottie": dottie.slug, "user": dottie.owner_id},
             ).result()
             client.exec(f"mkdir -p {WORKDIR}")
         return AcaSandbox(client), client.sandbox_id

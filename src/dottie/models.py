@@ -39,9 +39,13 @@ class Skill(Base):
     """A reusable procedure (a SKILL.md) any dottie can be given: one shared library, assigned per dottie."""
 
     __tablename__ = "skills"
+    __table_args__ = (UniqueConstraint("owner_id", "name"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str] = mapped_column(String(64), unique=True)  # lowercase-hyphen: it is the skill's directory name
+    owner_id: Mapped[str] = mapped_column(String(64), default="", server_default="")  # "": built in, for everyone
+    name: Mapped[str] = mapped_column(
+        String(64)
+    )  # lowercase-hyphen: it is the skill's directory name, unique per owner
     description: Mapped[str] = mapped_column(String(1024))  # when to use it: the only part always in the prompt
     body: Mapped[str] = mapped_column(Text)
     builtin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -61,6 +65,7 @@ class Dottie(Base):
     __tablename__ = "dotties"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), index=True, default="local", server_default="local")  # the user
     name: Mapped[str] = mapped_column(String(80))
     slug: Mapped[str] = mapped_column(String(80), unique=True)  # how other dotties address it
     role: Mapped[str] = mapped_column(String(200), default="")  # one line: what it is for
@@ -75,6 +80,19 @@ class Dottie(Base):
     created_at: Mapped[datetime] = _now()
 
     skills: Mapped[list[Skill]] = relationship(secondary="dottie_skills", order_by=Skill.name)
+
+
+class ApiToken(Base):
+    """A personal access token: lets a user's other tools (an MCP client) act as them. Only its hash is kept."""
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)  # sha256 of the token
+    created_at: Mapped[datetime] = _now()
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
 
 class WikiPage(Base):

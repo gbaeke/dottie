@@ -6,10 +6,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
+from ..auth import UserDep
 from ..db import SessionDep
 from ..engine import scheduler
 from ..models import Dottie, Schedule
-from .errors import ApiError, get_or_404
+from .access import owned_dottie, owned_schedule
+from .errors import ApiError
 from .util import build
 
 router = APIRouter(tags=["schedules"])
@@ -62,21 +64,22 @@ def _check(cron: str | None, run_at: datetime | None, timezone: str) -> None:
 
 
 @router.get("/schedules")
-def list_all(session: SessionDep) -> list[ScheduleOut]:
-    rows = session.scalars(select(Schedule).order_by(Schedule.enabled.desc(), Schedule.next_run_at, Schedule.id))
+def list_all(session: SessionDep, user: UserDep) -> list[ScheduleOut]:
+    mine = select(Schedule).join(Dottie, Dottie.id == Schedule.dottie_id).where(Dottie.owner_id == user.id)
+    rows = session.scalars(mine.order_by(Schedule.enabled.desc(), Schedule.next_run_at, Schedule.id))
     return [_out(session, s) for s in rows]
 
 
 @router.get("/dotties/{dottie_id}/schedules")
-def list_schedules(dottie_id: int, session: SessionDep) -> list[ScheduleOut]:
-    get_or_404(session, Dottie, dottie_id)
+def list_schedules(dottie_id: int, session: SessionDep, user: UserDep) -> list[ScheduleOut]:
+    owned_dottie(session, user, dottie_id)
     rows = session.scalars(select(Schedule).where(Schedule.dottie_id == dottie_id).order_by(Schedule.id))
     return [_out(session, s) for s in rows]
 
 
 @router.post("/dotties/{dottie_id}/schedules", status_code=201)
-def create_schedule(dottie_id: int, data: ScheduleIn, session: SessionDep) -> ScheduleOut:
-    get_or_404(session, Dottie, dottie_id)
+def create_schedule(dottie_id: int, data: ScheduleIn, session: SessionDep, user: UserDep) -> ScheduleOut:
+    owned_dottie(session, user, dottie_id)
     _check(data.cron, data.run_at, data.timezone)
     schedule = Schedule(dottie_id=dottie_id, enabled=True, **data.model_dump())
     scheduler.arm(schedule)
@@ -86,8 +89,8 @@ def create_schedule(dottie_id: int, data: ScheduleIn, session: SessionDep) -> Sc
 
 
 @router.patch("/schedules/{schedule_id}")
-def update_schedule(schedule_id: int, data: SchedulePatch, session: SessionDep) -> ScheduleOut:
-    schedule = get_or_404(session, Schedule, schedule_id)
+def update_schedule(schedule_id: int, data: SchedulePatch, session: SessionDep, user: UserDep) -> ScheduleOut:
+    schedule = owned_schedule(session, user, schedule_id)
     changes = data.model_dump(exclude_unset=True)
     for field, value in changes.items():
         setattr(schedule, field, value)
@@ -99,15 +102,15 @@ def update_schedule(schedule_id: int, data: SchedulePatch, session: SessionDep) 
 
 
 @router.post("/schedules/{schedule_id}/run", status_code=202)
-def run_now(schedule_id: int, session: SessionDep) -> ScheduleOut:
+def run_now(schedule_id: int, session: SessionDep, user: UserDep) -> ScheduleOut:
     """Fire it now, in addition to its normal timing."""
-    schedule = get_or_404(session, Schedule, schedule_id)
+    schedule = owned_schedule(session, user, schedule_id)
     scheduler.fire(session, schedule, datetime.now(UTC))
     session.commit()
     return _out(session, schedule)
 
 
 @router.delete("/schedules/{schedule_id}", status_code=204)
-def delete_schedule(schedule_id: int, session: SessionDep) -> None:
-    session.delete(get_or_404(session, Schedule, schedule_id))
+def delete_schedule(schedule_id: int, session: SessionDep, user: UserDep) -> None:
+    session.delete(owned_schedule(session, user, schedule_id))
     session.commit()

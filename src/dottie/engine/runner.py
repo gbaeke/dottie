@@ -123,7 +123,7 @@ class Runner:
 
         wiki = WikiFiles(self.sessions, dottie_id)
         ctx = RunContext(self.sessions, dottie_id, run_id, depth, self.settings.max_message_depth)
-        mcp_tools = await load_mcp_tools(servers)
+        mcp_tools = await load_mcp_tools(servers, public_only=self.settings.auth_enabled)
         conn = await self._connect()
         try:
             agent = build_agent(

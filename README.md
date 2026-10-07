@@ -20,8 +20,8 @@ dottie's computer, not the dottie.
 ## Status
 
 An experiment to see how Azure Container Apps Sandboxes work as the foundation for always-on agents. It runs locally
-with Docker sandboxes and on Azure with Container Apps Sandboxes (a preview service). The app has no sign-in, so
-restrict access (`ALLOWED_IPS`) when you deploy it.
+with Docker sandboxes and on Azure with Container Apps Sandboxes (a preview service). Sign-in (WorkOS) makes it multi-user
+and is off by default: without it, restrict access (`ALLOWED_IPS`) when you deploy.
 
 ## How it fits together
 
@@ -74,9 +74,38 @@ disk), starts it with a token for the run and waits. The runtime calls back to `
 - On Azure a second app from the same image (`SERVE=internal`, `dottie-gate`) serves only `/internal`. It is open to the
   internet because sandboxes have no fixed address, while the main app keeps its IP rules.
 
+## Users and sign-in
+
+Sign-in is off until `WORKOS_CLIENT_ID` is set. Then the app is multi-user:
+
+- **Sign-in** is [WorkOS AuthKit](https://workos.com/docs/authkit) with sealed sessions (`auth.py`). `ALLOWED_USERS` (comma
+  separated emails) adds a list the app checks itself.
+- **Everything belongs to a user**: dotties, and through them conversations, wiki, schedules, runs, the activity feed and the
+  inbox. A user's own skills are private; the built-in skills are everyone's. Anything that is not yours answers
+  `404 not found` (`api/access.py`), so nobody can tell what exists. `tests/test_multi_user.py` goes through every endpoint
+  to prove it.
+- **A dottie only knows the dotties of its own user**: `list_dotties` and `send_message` are scoped by owner. The activity
+  stream only reports changes to your own dotties.
+- **Limits**: `MAX_DOTTIES_PER_USER` (20). Sandboxes are labelled with the app, the dottie and the user.
+- **Personal access tokens** (the Connect page, `/api/tokens`) let a user's other tools use their dotties over MCP: send the
+  token as a Bearer token to `/mcp/`. Only a hash is stored, and the token is shown once.
+- **Before sign-in existed**: what was made while the app ran without sign-in belongs to a local user. The first person who
+  signs in takes it over; later users do not.
+
+Set it up with the WorkOS CLI (`npm install -g workos`, then `workos auth login`):
+
+```bash
+# in .env: WORKOS_CLIENT_ID, WORKOS_API_KEY, SESSION_SECRET (openssl rand -base64 32); never in the chat
+WORKOS_CLIENT_ID=client_... scripts/workos-uris.sh add http://localhost:8370   # redirect and sign-out addresses
+```
+
+On Azure: `WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... scripts/azure-deploy.sh` stores them in the deployment state,
+generates the session secret, and adds the app's address in WorkOS. `WORKOS_CLIENT_ID= scripts/azure-deploy.sh` turns
+sign-in off again. The gateway app never needs them: it answers sandboxes with run tokens.
+
 ## Use dotties from other agents (MCP)
 
-The app serves MCP over streamable HTTP at `/mcp/`. Tools: `list_dotties`, `ask_dottie` (sends a message, waits for the
+The app serves MCP over streamable HTTP at `/mcp/` (with sign-in on, send a personal access token as a Bearer token). Tools: `list_dotties`, `ask_dottie` (sends a message, waits for the
 answer, and returns a conversation id when the dottie is still working) and `read_wiki`. Example client entry:
 
 ```json
@@ -107,7 +136,7 @@ All settings are environment variables, listed with comments in `.env.example`.
 |---|---|
 | `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | The model. An empty key on an Azure endpoint uses the managed identity. |
 | `AGENT_MODE` | `app` or `sandbox`: where the agent loop runs. |
-| `SERVE`, `PUBLIC_URL` | `internal` serves only the sandbox API; `PUBLIC_URL` is how a sandbox reaches it. |
+| `SERVE`, `GATEWAY_URL` | `internal` serves only the sandbox API; `GATEWAY_URL` is how a sandbox reaches it. |
 | `SANDBOX_BACKEND` | `none`, `docker` or `aca`. |
 | `SANDBOX_IMAGE` | Docker sandbox image (default `python:3.14-slim`). |
 | `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `SANDBOX_GROUP`, `SANDBOX_REGION` | Where the `aca` backend finds its sandbox group. |
@@ -157,8 +186,9 @@ starts on every waking, because the agent lives there. After a run it stays runn
 
 `main.bicep` creates PostgreSQL (Entra sign-in only), an Azure AI Services account with a model deployment (no key: the
 app's managed identity signs in), a Container Apps **sandbox group**, a registry and the environment. The app runs with
-one replica that is **always on**: the clock and the dispatcher live in it. The app has **no sign-in**, and its dotties
-can use a shell and the web: set `ALLOWED_IPS` (above) so only you reach it.
+one replica that is **always on**: the clock and the dispatcher live in it. Its dotties can use a
+shell and the web, so protect the app: turn on sign-in (see Users and sign-in; `ALLOWED_USERS` lists who may enter) and/or
+set `ALLOWED_IPS` (above) so only your network reaches it.
 
 PostgreSQL accepts Entra sign-in only; as the deployer you are an admin too:
 `PGPASSWORD=$(az account get-access-token --resource-type oss-rdbms --query accessToken -o tsv) psql "host=<server> user=<you@domain> dbname=dottie sslmode=require"`.
