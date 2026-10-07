@@ -35,24 +35,54 @@ class RuntimeSandbox(BaseSandbox):
         self.app, self.model, self.workdir = app, model, workdir
         self.thread: threading.Thread | None = None
         self.commands: list[str] = []
+        # ways to misbehave, for the tests of what the app does about them
+        self.stuck = False  # the runtime is alive but takes no tickets
+        self.swallow = False  # it takes the ticket and never finishes
+        self.unreachable = False  # every call fails, as when the platform says the sandbox is not running
+        self.pending: dict[str, str] = {}  # run id -> token of tickets nobody took
+        self.restarts = 0
 
     @property
     def id(self) -> str:
         return "runtime-sandbox"
 
-    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:  # noqa: C901
         self.commands.append(command)
+        if self.unreachable and "echo alive" in command:
+            raise RuntimeError("Operation returned an invalid status 'Conflict': GlobalSandboxNotRunning")
         if command.startswith("cat /opt/dottie/stamp"):
             files, pins = sandbox_agent.runtime_files(), sandbox_agent.requirements()
             return ExecuteResponse(output=sandbox_agent.stamp(files, pins), exit_code=0)
-        if "/inbox/" in command:  # a run ticket for the runtime: its token is in the command
+        if "/inbox/" in command and "echo alive" not in command:  # a run ticket: its token is in the command
             token = re.search(r'"token": "([^"]+)"', command).group(1)  # pyright: ignore[reportOptionalMemberAccess]
-            self.thread = threading.Thread(target=self._runtime, args=(token,), daemon=True)
-            self.thread.start()
+            number = re.search(r"/inbox/(\d+)\.run", command).group(1)  # pyright: ignore[reportOptionalMemberAccess]
+            if self.stuck:
+                self.pending[number] = token
+            elif not self.swallow:
+                self._start(token)
             return ExecuteResponse(output="4242", exit_code=0)
+        if "echo alive" in command:  # the probe: is the runtime alive, is this run's ticket still waiting
+            number = re.search(r"/inbox/(\d+)\.run", command).group(1)  # pyright: ignore[reportOptionalMemberAccess]
+            alive = self.stuck or self.swallow or bool(self.thread and self.thread.is_alive())
+            return ExecuteResponse(
+                output=("alive\n" if alive else "") + ("waiting\n" if number in self.pending else "")
+            )
+        if command.startswith("kill -9"):  # the app replaces a stuck runtime
+            self.restarts += 1
+            self.stuck = False
+            for token in self.pending.values():
+                self._start(token)
+            self.pending.clear()
+            return ExecuteResponse(output="5555", exit_code=0)
+        if command.startswith("tail -n"):
+            return ExecuteResponse(output="2026-10-07 21:16:03 ERROR run failed after 3.0 s", exit_code=0)
         if command.startswith("kill -0"):
             return ExecuteResponse(output="", exit_code=0 if self.thread and self.thread.is_alive() else 1)
         return ExecuteResponse(output="", exit_code=0)
+
+    def _start(self, token: str) -> None:
+        self.thread = threading.Thread(target=self._runtime, args=(token,), daemon=True)
+        self.thread.start()
 
     def _runtime(self, token: str) -> None:
         headers = {"Authorization": f"Bearer {token}"}
@@ -326,3 +356,95 @@ def test_a_sandbox_stopped_from_outside_is_not_shown_as_awake(sandboxed):
     assert engine.reconcile() == [ada["id"]]
     assert client.get(f"/api/dotties/{ada['id']}").json()["state"] == "sleeping"
     assert provider.slept == 0  # nothing left for us to stop
+
+
+def _ask(client, provider, script, speed_up=True):
+    """One chat message to a new dottie; returns (dottie, conversation, run status, last reply)."""
+    ada = make(client)
+    conversation = chat(client, ada["id"], "Hello")
+    wake(client)
+    runs = client.get(f"/api/dotties/{ada['id']}/runs").json()
+    reply = client.get(f"/api/conversations/{conversation}/messages").json()[-1]
+    return ada, conversation, runs[0]["status"], reply
+
+
+def test_a_runtime_that_takes_no_tickets_is_restarted_and_the_run_completes(sandboxed, monkeypatch):
+    client, provider, script = sandboxed
+    monkeypatch.setattr(sandbox_agent, "ALIVE_CHECK_SECONDS", 0)  # probe on every poll
+    script.append(say("Back at it."))
+    provider.sandbox.stuck = True
+    _, _, status, reply = _ask(client, provider, script)
+    assert provider.sandbox.restarts == 1
+    assert (status, reply["body"]) == ("done", "Back at it.")
+
+
+def test_a_sandbox_that_was_stopped_under_a_run_fails_it_clearly_and_quickly(sandboxed, monkeypatch):
+    client, provider, script = sandboxed
+    monkeypatch.setattr(sandbox_agent, "ALIVE_CHECK_SECONDS", 0)
+    provider.sandbox.swallow = True  # the task is handed over; then the platform answers 409 to every probe
+    provider.sandbox.unreachable = True
+    _, _, status, reply = _ask(client, provider, script)
+    assert status == "failed" and reply["sender_kind"] == "system"
+    assert "stopped or could not be reached" in reply["body"]
+
+
+def test_a_run_that_runs_out_of_time_says_what_the_runtime_logged(sandboxed):
+    client, provider, script = sandboxed
+    agent = client.app.state.engine.runner.sandbox_agent
+    agent.settings = agent.settings.model_copy(update={"run_timeout_seconds": 1})
+    provider.sandbox.swallow = True  # taken, and never finished
+    _, _, status, reply = _ask(client, provider, script)
+    assert status == "failed"
+    assert "ran out of time" in reply["body"] and "run failed after 3.0 s" in reply["body"]  # the log tail is included
+
+
+def test_the_reaper_and_the_dispatcher_never_work_on_the_same_dottie(sandboxed):
+    client, provider, script = sandboxed
+    ada = make(client)
+    script.append(say("Hi."))
+    chat(client, ada["id"], "Hello")
+    wake(client)
+    engine = client.app.state.engine
+    later = datetime.now(UTC) + timedelta(seconds=client.app.state.settings.sandbox_idle_seconds + 5)
+
+    engine.active[ada["id"]] = None  # type: ignore[assignment]  # a run is in flight (or about to start)
+    assert engine.reap_idle(later) == [] and provider.slept == 0  # its sandbox is not stopped
+    del engine.active[ada["id"]]
+
+    engine.stopping.add(ada["id"])  # its sandbox is being stopped: a new message waits for that to finish
+    chat(client, ada["id"], "Again")
+    assert engine.tick() == []
+    engine.stopping.discard(ada["id"])
+    assert engine.tick() == [ada["id"]]
+    engine.wait_idle(60)
+
+
+def test_a_run_that_hangs_does_not_block_the_tickets_behind_it(tmp_path, monkeypatch):
+    import json
+
+    from dottie_runtime import main as runtime
+
+    handled: list[str] = []
+
+    async def fake_run(api, **options):
+        if api.token == "hangs":
+            await asyncio.sleep(30)
+        handled.append(api.token)
+
+    reported: list[str] = []
+
+    async def fake_report(ticket, reply):
+        reported.append(ticket["token"])
+
+    monkeypatch.setattr(runtime, "run_safely", fake_run)
+    monkeypatch.setattr(runtime, "_report_failure", fake_report)
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    import os
+
+    for n, token in enumerate(["hangs", "fine"]):
+        ticket = inbox / f"{n}.run"
+        ticket.write_text(json.dumps({"api": "http://app/internal", "token": token, "timeout": 0.3}))
+        os.utime(ticket, (1000 + n, 1000 + n))
+    asyncio.run(runtime.serve(inbox, workdir=tmp_path, state_db=tmp_path / "s.db", idle_exit=0.3, poll=0.05))
+    assert handled == ["fine"] and reported == ["hangs"]  # the hung run was given up and reported; the next one ran
