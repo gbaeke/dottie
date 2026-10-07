@@ -18,7 +18,7 @@ class Settings(BaseSettings):
 
     # --- The engine: the dispatcher that wakes dotties and the scheduler that fires their schedules ---
     engine_enabled: bool = True  # tests turn it off and drive the dispatcher by hand
-    poll_seconds: float = 1.0  # how often the dispatcher looks for pending messages and due schedules
+    poll_seconds: float = 0.5  # how often the dispatcher looks for pending messages and due schedules
     run_timeout_seconds: int = 900  # a dottie that is awake longer than this is put back to sleep
     max_message_depth: int = 5  # hops (dottie to dottie) a conversation may take before it must go through a human
     max_workers: int = 4  # dotties awake at the same time
@@ -30,14 +30,25 @@ class Settings(BaseSettings):
     llm_model: str = ""  # the deployment name; a dottie may override it
     llm_use_responses_api: bool = True
 
+    # --- Where the agent's loop runs ---
+    agent_mode: Literal["app", "sandbox"] = "app"  # app: in this process; sandbox: inside the dottie's own sandbox
+    serve: Literal["all", "internal"] = "all"  # internal: only the sandbox callback API (the gateway app on Azure)
+    public_url: str = ""  # how a sandbox reaches this app (agent_mode=sandbox); empty: http://localhost:<port> (docker)
+
     # --- The sandbox: a dottie's own computer ---
     sandbox_backend: Literal["none", "docker", "aca"] = "none"  # none: no shell, only the wiki
     sandbox_image: str = "python:3.14-slim"  # docker backend
+    sandbox_docker_network: str = "host"  # docker backend: host lets a sandbox reach this app on localhost
     azure_subscription_id: str = ""  # aca backend: where the sandbox group lives
     azure_resource_group: str = ""
     sandbox_group: str = ""
     sandbox_region: str = ""
-    sandbox_idle_seconds: int = 300  # aca: suspend a sandbox this long after its last use
+    sandbox_idle_seconds: int = 120  # keep a dottie's sandbox running this long after its last run (for follow-ups)
+
+    @property
+    def callback_url(self) -> str:
+        """Where the agent in a sandbox finds this app."""
+        return (self.public_url or f"http://localhost:{self.port}").rstrip("/")
 
     @property
     def llm_configured(self) -> bool:

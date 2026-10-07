@@ -3,6 +3,7 @@
 # Container App only). The infrastructure comes from scripts/azure-up.sh, once.
 #   scripts/azure-deploy.sh
 #   ALLOWED_IPS=203.0.113.4/32 scripts/azure-deploy.sh   # only these addresses (ALLOWED_IPS= opens it again)
+#   AGENT_MODE=app scripts/azure-deploy.sh               # the agent loop in the app (default: sandbox)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/azure-lib.sh
@@ -24,10 +25,17 @@ docker build --platform linux/amd64 -t "$IMAGE" .
 az acr login -n "$ACR_NAME"
 docker push "$IMAGE"
 
+# Two apps from one image. The gateway answers only the agents in the sandboxes (token per run, open to the internet:
+# the sandboxes have no fixed address). The app is the UI, API and the clock, and keeps its IP rules.
+echo "== Gateway (app.bicep, serve=internal)"
+GATE=$(az deployment group create -g "$RG" -n gate -f infra/app.bicep \
+  -p name=dottie-gate serve=internal agentMode="${AGENT_MODE:-sandbox}" location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" \
+  --query properties.outputs.fqdn.value -o tsv)
+
 echo "== App (app.bicep)"
 FQDN=$(az deployment group create -g "$RG" -n app -f infra/app.bicep \
-  -p location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" ipRules="$(ip_rules_json)" \
-  --query properties.outputs.fqdn.value -o tsv)
+  -p location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" ipRules="$(ip_rules_json)" agentMode="${AGENT_MODE:-sandbox}" \
+  publicUrl="https://$GATE" --query properties.outputs.fqdn.value -o tsv)
 
 echo
 echo "Running at https://$FQDN (the first request after an idle period starts it: a few seconds)"

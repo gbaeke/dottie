@@ -39,20 +39,52 @@ restrict access (`ALLOWED_IPS`) when you deploy it.
   conversation, so each run builds on the last.
 - **The dispatcher** (`engine/core.py`) wakes dotties that have mail. One process leads (a PostgreSQL advisory lock), so
   more replicas are safe.
-- **The runner** (`engine/runner.py`) is one waking: claim the mail, start the sandbox, run the
+- **The runner** (`engine/runner.py`) is one waking: claim the mail, run the
   [Deep Agent](https://docs.langchain.com/oss/python/deepagents/overview), write what it does to the activity feed,
-  deliver the answer, stop the sandbox.
+  deliver the answer, stop the sandbox. Where the agent loop runs depends on `AGENT_MODE` (below).
 - **Memory is a wiki** (`engine/files.py`): markdown pages in PostgreSQL, mounted at `/wiki` in the agent's filesystem.
   `index.md` is always in its prompt (Deep Agents' `memory`), the rest it reads on demand and edits with the normal file
   tools. The user can read and edit the same pages. **Skills** are mounted read-only at `/skills`.
-- **The sandbox** (`engine/sandboxes.py`) implements Deep Agents' sandbox backend: `none`, `docker` (a container per
-  dottie, local) or `aca` ([Azure Container Apps Sandboxes](https://learn.microsoft.com/azure/container-apps/sandboxes-overview):
-  stopped when the dottie sleeps, disk kept). The agent's brain runs in the app; only its commands run in the sandbox.
+- **The sandbox** (`engine/sandboxes.py`): `none`, `docker` (a container per dottie, local) or `aca`
+  ([Azure Container Apps Sandboxes](https://learn.microsoft.com/azure/container-apps/sandboxes-overview): stopped when
+  the dottie sleeps, disk kept).
 - **Tools** run in the app, never in the sandbox, so credentials stay out of reach of the agent: `messaging`
   (`list_dotties`, `send_message`, `tell_user`), `schedule`, `web` (`fetch_url`, public addresses only), `shell` (the
   sandbox), plus any **MCP servers** you attach to a dottie.
 - **Dottie as an MCP server**: `/mcp/` exposes `list_dotties`, `ask_dottie` and `read_wiki` to other agents.
 - Message loops are cut by a hop counter (`MAX_MESSAGE_DEPTH`) and a per-waking send limit.
+
+## Where the agent runs: `AGENT_MODE`
+
+| | `app` | `sandbox` |
+|---|---|---|
+| Agent loop (model calls, planning) | in the app process | inside the dottie's own sandbox (`src/dottie_runtime`) |
+| `execute` and `/workspace` | in the sandbox, over `execute()` and file transfer | the machine the agent runs on |
+| Conversation memory (checkpoints) | PostgreSQL | SQLite on the sandbox disk (rebuilt from the transcript in a new sandbox) |
+| The app's job | everything | control plane: messages, clock, dispatcher, UI and API |
+| Scaling | agent loops cost app CPU and memory | the app only waits; sandboxes scale on the platform |
+
+In `sandbox` mode the dispatcher wakes the sandbox, installs the runtime on first use (about 30 seconds, kept on the
+disk), starts it with a token for the run and waits. The runtime calls back to `/internal` (`api/internal.py`):
+- `/context`: the prompt, input and tool list; `/llm/*`: the model, through the app, which adds the real credentials and
+  keeps the dottie's own model name; `/tools/<name>`: the tools (messaging, schedules, web, MCP servers), which run in
+  the app; `/wiki`, `/skills`, `/events` and `/finish`.
+- The sandbox holds no database or model credentials. Its token is random per run and stops working when the run ends.
+  Code the agent runs in its sandbox can read that token, and use it for what the run's own tools allow.
+- On Azure a second app from the same image (`SERVE=internal`, `dottie-gate`) serves only `/internal`. It is open to the
+  internet because sandboxes have no fixed address, while the main app keeps its IP rules.
+
+## Use dotties from other agents (MCP)
+
+The app serves MCP over streamable HTTP at `/mcp/`. Tools: `list_dotties`, `ask_dottie` (sends a message, waits for the
+answer, and returns a conversation id when the dottie is still working) and `read_wiki`. Example client entry:
+
+```json
+{ "dottie": { "type": "http", "url": "http://localhost:8370/mcp/" } }
+```
+
+The other direction works too: attach any MCP server to a dottie in its settings and its tools join the dottie's own.
+For example `https://learn.microsoft.com/api/mcp` gives it Microsoft Learn search.
 
 ## Run it
 
@@ -66,6 +98,33 @@ Settings live in `.env` (created from `.env.example` on the first run). To let d
 `LLM_API_KEY` and `LLM_MODEL` (an Azure Foundry OpenAI v1 endpoint, or any OpenAI-compatible gateway). Without a model
 the app runs and tells you why a dottie cannot answer. `SANDBOX_BACKEND=docker` gives dotties with the `shell` toolkit a
 container each (`none` for no shell).
+
+### Settings
+
+All settings are environment variables, listed with comments in `.env.example`.
+
+| Setting | Purpose |
+|---|---|
+| `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` | The model. An empty key on an Azure endpoint uses the managed identity. |
+| `AGENT_MODE` | `app` or `sandbox`: where the agent loop runs. |
+| `SERVE`, `PUBLIC_URL` | `internal` serves only the sandbox API; `PUBLIC_URL` is how a sandbox reaches it. |
+| `SANDBOX_BACKEND` | `none`, `docker` or `aca`. |
+| `SANDBOX_IMAGE` | Docker sandbox image (default `python:3.14-slim`). |
+| `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `SANDBOX_GROUP`, `SANDBOX_REGION` | Where the `aca` backend finds its sandbox group. |
+| `USER_TIMEZONE` | What "now" means to the dotties. |
+| `MAX_MESSAGE_DEPTH`, `RUN_TIMEOUT_SECONDS`, `MAX_WORKERS` | Limits on message hops, one waking, and dotties awake at once. |
+
+## Project layout
+
+```
+src/dottie/engine/   bus, scheduler, dispatcher, runner, agent, tools, files (wiki and skills), sandboxes
+src/dottie/api/      one router per area: dotties, chat, wiki, schedules, skills, activity, system
+src/dottie/mcp_server.py   Dottie as an MCP server
+src/dottie_runtime/  the agent runtime that runs inside a sandbox (shares nothing with the app but HTTP)
+frontend/            React, Vite, Tailwind; the API client is generated from the OpenAPI schema
+infra/               Bicep for Azure; scripts/ has azure-up, azure-deploy and azure-down
+tests/               pytest against a real PostgreSQL, with a scripted fake model
+```
 
 ## Develop
 
@@ -86,6 +145,15 @@ ALLOWED_IPS=<your public ip>/32 scripts/azure-up.sh   # once, and when infra/mai
 scripts/azure-deploy.sh                               # every new version: build and push the image, update only the app
 scripts/azure-down.sh                                 # remove everything
 ```
+
+`azure-up.sh` also creates the sandbox group with a direct ARM call and grants the app's identity the "Container Apps
+SandboxGroup Data Owner" role, because ARM preflight validation rejects that preview resource type in templates. If the
+Container Apps environment fails with a capacity error in your region, set `APP_LOCATION` to another region: only the
+environment and the app move, the data resources stay.
+
+In `app` mode a dottie's sandbox starts only when the agent first runs a command or uses `/workspace`. In `sandbox` mode it
+starts on every waking, because the agent lives there. After a run it stays running for `SANDBOX_IDLE_SECONDS` (default
+120), so a follow-up message finds it warm; the engine stops it once the dottie's last run ended that long ago. A chat answer that needs no computer never resumes it, and an idle dottie costs nothing for compute. Its disk stays.
 
 `main.bicep` creates PostgreSQL (Entra sign-in only), an Azure AI Services account with a model deployment (no key: the
 app's managed identity signs in), a Container Apps **sandbox group**, a registry and the environment. The app runs with

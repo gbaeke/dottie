@@ -104,7 +104,7 @@ export function Overview() {
         <h1 className="text-2xl font-semibold tracking-tight">{greeting()}.</h1>
         <p className="text-fg-muted">
           {dotties.data
-            ? `${dotties.data.filter((d) => d.state === 'awake').length} awake, ${dotties.data.filter((d) => d.state === 'sleeping').length} asleep.`
+            ? `${dotties.data.filter((d) => d.state === 'awake' || d.state === 'idle').length} awake, ${dotties.data.filter((d) => d.state === 'sleeping').length} asleep.`
             : ' '}
         </p>
       </div>

@@ -134,7 +134,7 @@ def list_messages(conversation_id: str, session: SessionDep, after: int = 0) -> 
 
 
 @router.post("/conversations/{conversation_id}/messages", status_code=201)
-def send_message(conversation_id: str, data: MessageIn, session: SessionDep) -> MessageOut:
+def send_message(conversation_id: str, data: MessageIn, session: SessionDep, request: Request) -> MessageOut:
     conversation = get_or_404(session, Conversation, conversation_id)
     if conversation.kind == "dottie":
         raise ApiError("not_allowed", "That is a conversation between dotties; start a chat to talk to them.", 409)
@@ -144,6 +144,7 @@ def send_message(conversation_id: str, data: MessageIn, session: SessionDep) -> 
     if not conversation.title:
         conversation.title = data.body.strip().splitlines()[0][:60]
     session.commit()
+    request.app.state.engine.nudge()  # wake the dispatcher now instead of at its next poll
     return _messages_out(session, [message])[0]
 
 

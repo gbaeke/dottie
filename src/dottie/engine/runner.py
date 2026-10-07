@@ -1,7 +1,8 @@
-"""One waking of a dottie: claim its mail, start its sandbox, let the agent work, record it, go back to sleep."""
+"""One waking of a dottie: claim its mail, let the agent work (its sandbox starts only if used), record it, sleep."""
 
 import asyncio
 import logging
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
@@ -13,12 +14,14 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..db import entra_password
-from ..models import Conversation, Dottie, Message, Run
+from ..models import Dottie, Message, Run
 from . import bus
 from .agent import ModelFactory, NotConfigured, build_agent
 from .files import SkillFiles, WikiFiles
 from .mcp import load_mcp_tools
-from .sandboxes import SandboxProvider
+from .runs import complete_run, describe
+from .sandbox_agent import SandboxAgent
+from .sandboxes import LazySandbox, SandboxProvider
 from .tools import RunContext, build_tools, record
 
 log = logging.getLogger(__name__)
@@ -35,6 +38,10 @@ class Runner:
         model_factory: ModelFactory,
     ):
         self.settings, self.sessions, self.provider, self.model_factory = settings, sessions, provider, model_factory
+        # Two ways to run the agent: its loop in this process (the sandbox is only its computer), or the loop in the
+        # sandbox itself (this process then only wakes it and waits). The second needs a sandbox to run in.
+        self.agent_in_sandbox = settings.agent_mode == "sandbox" and provider.name != "none"
+        self.sandbox_agent = SandboxAgent(settings, sessions, provider)
 
     def wake(self, dottie_id: int) -> int:
         """Handle everything waiting for this dottie, then let it sleep. Returns how many batches it handled."""
@@ -60,24 +67,34 @@ class Runner:
         with self.sessions() as s:
             dottie = s.get_one(Dottie, dottie_id)
             messages = [s.get_one(Message, i) for i in message_ids]
-            conversation = s.get_one(Conversation, messages[0].conversation_id)
             first = messages[0]
-            run = Run(dottie_id=dottie.id, conversation_id=conversation.id, trigger=first.sender_kind)
+            run = Run(
+                dottie_id=dottie.id,
+                conversation_id=first.conversation_id,
+                trigger=first.sender_kind,
+                token=secrets.token_urlsafe(32),  # what an agent in a sandbox calls back with, until the run ends
+            )
             s.add(run)
+            s.flush()
+            for m in messages:
+                m.run_id = run.id
             dottie.last_woke_at = datetime.now(UTC)
-            s.commit()
             run_id, depth = run.id, max(m.depth for m in messages)
-            conversation_id, kind = conversation.id, conversation.kind
-            text, trigger = self._describe(s, messages)
-        record(self.sessions, dottie_id, run_id, "wake", trigger)
+            conversation_id = first.conversation_id
+            text, trigger, headline = describe(s, messages)
+            s.commit()
+        record(self.sessions, dottie_id, run_id, "wake", headline)
         status, reply = "done", ""
         try:
-            reply = asyncio.run(
-                asyncio.wait_for(
-                    self._work(dottie_id, run_id, conversation_id, text, trigger, depth),
-                    self.settings.run_timeout_seconds,
+            if self.agent_in_sandbox:
+                status, reply = self.sandbox_agent.run(dottie_id, run_id)
+            else:
+                reply = asyncio.run(
+                    asyncio.wait_for(
+                        self._work(dottie_id, run_id, conversation_id, text, trigger, depth),
+                        self.settings.run_timeout_seconds,
+                    )
                 )
-            )
         except NotConfigured as e:
             status, reply = "failed", str(e)
         except TimeoutError:
@@ -85,39 +102,9 @@ class Runner:
         except Exception as e:
             log.exception("run %s of dottie %s failed", run_id, dottie_id)
             status, reply = "failed", f"I could not finish: {e}"
-        if status == "failed":
+        if status == "failed" and reply:
             record(self.sessions, dottie_id, run_id, "error", reply)
-        with self.sessions() as s:
-            conversation = s.get_one(Conversation, conversation_id)
-            if kind != "dottie" and reply:  # a dottie's answer to another dottie is not delivered: it uses send_message
-                bus.post(
-                    s,
-                    conversation,
-                    sender_kind="dottie" if status == "done" else "system",
-                    sender_id=dottie_id,
-                    recipient_id=None,
-                    body=reply,
-                )
-            bus.finish([s.get_one(Message, i) for i in message_ids], status)
-            run = s.get_one(Run, run_id)
-            run.status, run.summary, run.finished_at = status, reply[:500], datetime.now(UTC)
-            s.commit()
-
-    def _describe(self, s: Session, messages: list[Message]) -> tuple[str, str]:
-        """What the dottie is told (the messages as one input) and why it woke (for the prompt and the feed)."""
-        first = messages[0]
-        if first.sender_kind == "dottie":
-            sender = s.get(Dottie, first.sender_id) if first.sender_id else None
-            who = f"{sender.name} ({sender.slug})" if sender else "another dottie"
-            body = "\n\n".join(m.body for m in messages)
-            return (
-                f"Message from {who}:\n\n{body}",
-                f"You were woken by a message from another dottie, {who}. Reply with send_message if it needs one.",
-            )
-        body = "\n\n".join(m.body for m in messages)
-        if first.sender_kind == "scheduler":
-            return body, "You were woken by one of your schedules; the task is the message below."
-        return body, "You were woken by a message from the person you work for."
+        complete_run(self.sessions, run_id, status, reply)
 
     async def _work(
         self, dottie_id: int, run_id: int, conversation_id: str, text: str, trigger: str, depth: int
@@ -128,15 +115,11 @@ class Runner:
             toolkits, servers = list(dottie.tools), list(dottie.mcp_servers)
         model = self.model_factory(self.settings, dottie)
 
-        sandbox = None
-        if "shell" in toolkits:
-            try:
-                sandbox, ref = await asyncio.to_thread(self.provider.wake, dottie)
-                if ref and ref != dottie.sandbox_ref:
-                    self._remember_sandbox(dottie_id, ref)
-            except Exception as e:
-                log.warning("sandbox for dottie %s did not start: %s", dottie_id, e)
-                record(self.sessions, dottie_id, run_id, "error", f"My computer did not start: {e}")
+        sandbox = (
+            LazySandbox(self.provider, dottie, lambda ref: self._remember_sandbox(dottie_id, ref))
+            if "shell" in toolkits
+            else None
+        )
 
         wiki = WikiFiles(self.sessions, dottie_id)
         ctx = RunContext(self.sessions, dottie_id, run_id, depth, self.settings.max_message_depth)
@@ -192,19 +175,18 @@ class Runner:
 
     def _remember_sandbox(self, dottie_id: int, ref: str) -> None:
         with self.sessions() as s:
-            s.get_one(Dottie, dottie_id).sandbox_ref = ref
+            dottie = s.get_one(Dottie, dottie_id)
+            dottie.sandbox_ref, dottie.sandbox_awake = ref, True
             s.commit()
 
     def _sleep(self, dottie_id: int) -> None:
-        """Put the dottie's computer to sleep (it keeps its disk) and say so in the feed."""
         with self.sessions() as s:
-            ref = s.get_one(Dottie, dottie_id).sandbox_ref
-        if ref:
-            try:
-                self.provider.sleep(ref)
-            except Exception as e:
-                log.warning("could not stop the sandbox of dottie %s: %s", dottie_id, e)
-        record(self.sessions, dottie_id, None, "sleep", "Went back to sleep.")
+            warm = s.get_one(Dottie, dottie_id).sandbox_awake and self.settings.sandbox_idle_seconds > 0
+        if warm:  # its computer keeps running for follow-ups; the engine records the sleep when it stops it
+            seconds = self.settings.sandbox_idle_seconds
+            record(self.sessions, dottie_id, None, "idle", f"Done. Staying awake for {seconds} s in case you reply.")
+        else:
+            record(self.sessions, dottie_id, None, "sleep", "Went back to sleep.")
 
 
 def _call_text(call: ToolCall) -> str:

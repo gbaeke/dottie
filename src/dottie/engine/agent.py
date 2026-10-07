@@ -1,6 +1,6 @@
 """Assembling a dottie's agent for one waking: model, prompt, tools, and the files it can see."""
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -9,13 +9,11 @@ import httpx
 from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, StateBackend
 from deepagents.backends.protocol import BackendProtocol, SandboxBackendProtocol
-from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.agents.middleware.types import ToolCallRequest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.types import Command
+
+from dottie_runtime.filters import ToolFilter
 
 from ..config import Settings
 from ..models import Dottie
@@ -61,52 +59,30 @@ def build_model(settings: Settings, dottie: Dottie) -> BaseChatModel:
     )
 
 
-class ToolFilter(AgentMiddleware):
-    """Hides tools a dottie has not been given (Deep Agents always adds `execute`, shell or not) and refuses them if
-    a model asks for one anyway."""
-
-    def __init__(self, blocked: set[str]):
-        self.blocked = blocked
-
-    def _allowed(self, request: ModelRequest) -> ModelRequest:
-        return request.override(tools=[t for t in request.tools if getattr(t, "name", None) not in self.blocked])
-
-    def _refusal(self, request: ToolCallRequest) -> ToolMessage | None:
-        if request.tool_call["name"] in self.blocked:
-            return ToolMessage(
-                content=f"{request.tool_call['name']} is not available to you.",
-                tool_call_id=request.tool_call["id"],
-                status="error",
-            )
-        return None
-
-    def wrap_model_call(self, request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]):
-        return handler(self._allowed(request))
-
-    async def awrap_model_call(
-        self, request: ModelRequest, handler: Callable[[ModelRequest], Awaitable[ModelResponse]]
-    ):
-        return await handler(self._allowed(request))
-
-    def wrap_tool_call(
-        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], ToolMessage | Command[Any]]
-    ):
-        return self._refusal(request) or handler(request)
-
-    async def awrap_tool_call(
-        self, request: ToolCallRequest, handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command[Any]]]
-    ):
-        return self._refusal(request) or await handler(request)
-
-
-def system_prompt(dottie: Dottie, trigger: str, has_shell: bool, timezone: str) -> str:
+def system_prompt(dottie: Dottie, trigger: str, has_shell: bool, timezone: str, *, in_sandbox: bool = False) -> str:
     now = datetime.now(ZoneInfo(timezone)).strftime("%A %d %B %Y, %H:%M (%Z)")
-    computer = (
+    if in_sandbox:
+        computer = (
+            f"- You live on a Linux computer of your own (tool `execute`), working directory `{WORKDIR}`. Keep working "
+            "files there. It is yours alone and may be reset: what matters goes in your wiki.\n"
+            if has_shell
+            else "- You have no shell, only your wiki. Files outside `/wiki` vanish when you go to sleep.\n"
+        )
+    else:
+        computer = _computer_note(has_shell)
+    return _prompt(dottie, computer, trigger, now)
+
+
+def _computer_note(has_shell: bool) -> str:
+    return (
         f"- You have a computer of your own: a Linux sandbox (tool `execute`) with a persistent working directory "
         f"`{WORKDIR}`. Keep working files there. It is yours alone and may be reset: what matters goes in your wiki.\n"
         if has_shell
         else "- You have no computer of your own, only your wiki. Files outside `/wiki` vanish when you go to sleep.\n"
     )
+
+
+def _prompt(dottie: Dottie, computer: str, trigger: str, now: str) -> str:
     return f"""You are {dottie.name}, a dottie: a persistent agent that works for one person. {dottie.role}
 
 ## How you live

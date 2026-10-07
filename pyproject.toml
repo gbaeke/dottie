@@ -14,6 +14,7 @@ dependencies = [
     "langchain-mcp-adapters>=0.3.2",
     "langchain-openai>=1.6.7",
     "langgraph-checkpoint-postgres>=3.1.2",
+    "langgraph-checkpoint-sqlite>=3.1.1",
     "psycopg-pool>=3.3.3",
     "psycopg[binary]>=3.3.6",
     "pydantic-settings>=2.15.0",
@@ -24,6 +25,9 @@ dependencies = [
 
 [project.scripts]
 dottie = "dottie:main"
+
+[tool.uv.build-backend]
+module-name = ["dottie", "dottie_runtime"]  # dottie_runtime is what runs inside a dottie's sandbox
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
