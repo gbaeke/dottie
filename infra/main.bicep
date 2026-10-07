@@ -98,7 +98,7 @@ param modelName string = 'gpt-6-luna'
 param modelVersion string = '2026-09-22'
 
 @description('Capacity in thousands of tokens per minute.')
-param modelCapacity int = 50
+param modelCapacity int = 1000
 
 resource ai 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'ais-${suffix}'
