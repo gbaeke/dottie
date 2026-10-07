@@ -72,3 +72,10 @@ uv add PKG / uv add --dev PKG     # never pip; never edit uv.lock by hand
 - Tools that fetch URLs must refuse non-public addresses (the cloud metadata service is reachable from the app).
 - LangGraph's `checkpoint*` tables are not ours: Alembic ignores them (`EXTERNAL_TABLE_PREFIXES`).
 - The Azure app runs with `minReplicas: 1` on purpose: the clock and dispatcher are in-process.
+- The sandbox is lazy (`LazySandbox`): a waking that never runs a command or touches `/workspace` never starts it. Keep
+  anything that needs the sandbox behind the backend's `execute`/upload/download, or it will wake it for nothing.
+- `src/dottie_runtime/` runs inside sandboxes and is copied there as source: it must never import `dottie` (the app
+  imports it, not the other way round). Anything both sides need (`DictFiles`, `ToolFilter`) lives in it.
+- In `AGENT_MODE=sandbox` the sandbox gets a run token and nothing else. Do not hand it database or model credentials:
+  add an `/internal` endpoint instead. `/internal` is excluded from OpenAPI (and so from the generated client).
+- Routes: include the API router before `_serve_frontend`, whose catch-all would otherwise answer `/api/...`.

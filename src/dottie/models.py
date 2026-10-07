@@ -70,6 +70,7 @@ class Dottie(Base):
     tools: Mapped[list[str]] = mapped_column(JSONB, default=list)  # enabled toolkits: see engine/tools.py
     mcp_servers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)  # [{"name", "url"}]
     sandbox_ref: Mapped[str | None] = mapped_column(String(200), default=None)  # its computer, once it has one
+    sandbox_awake: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")  # that computer runs
     last_woke_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
     created_at: Mapped[datetime] = _now()
 
@@ -122,6 +123,7 @@ class Message(Base):
     body: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(12), default="pending")  # pending | processing | done | failed
     depth: Mapped[int] = mapped_column(Integer, default=0)  # hops since a human or the clock: stops message loops
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("runs.id", ondelete="SET NULL"), default=None)  # handled in
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)  # for the user's inbox
     created_at: Mapped[datetime] = _now()
 
@@ -160,6 +162,9 @@ class Run(Base):
     trigger: Mapped[str] = mapped_column(String(10))  # user | scheduler | dottie
     status: Mapped[str] = mapped_column(String(10), default="running")  # running | done | failed
     summary: Mapped[str] = mapped_column(Text, default="")
+    token: Mapped[str] = mapped_column(
+        String(64), default="", server_default=""
+    )  # what the agent in the sandbox calls back with
     started_at: Mapped[datetime] = _now()
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 

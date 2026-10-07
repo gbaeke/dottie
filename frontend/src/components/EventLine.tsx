@@ -1,7 +1,9 @@
 import {
   AlarmClock,
   BookOpen,
+  Coffee,
   Hammer,
+  Info,
   MessageSquareShare,
   Moon,
   Sun,
@@ -13,7 +15,9 @@ import { cn } from '@/lib/utils'
 
 const EVENT_ICON: Record<string, { icon: LucideIcon; tone: string; label: string }> = {
   wake: { icon: Sun, tone: 'text-warn', label: 'Woke up' },
+  idle: { icon: Coffee, tone: 'text-ok', label: 'Idle' },
   sleep: { icon: Moon, tone: 'text-fg-muted', label: 'Went to sleep' },
+  note: { icon: Info, tone: 'text-fg-muted', label: 'Note' },
   tool: { icon: Hammer, tone: 'text-accent', label: 'Used a tool' },
   tool_result: { icon: TerminalSquare, tone: 'text-fg-muted', label: 'Tool result' },
   sent: { icon: MessageSquareShare, tone: 'text-ok', label: 'Sent a message' },

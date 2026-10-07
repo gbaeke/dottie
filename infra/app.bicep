@@ -20,8 +20,22 @@ param ipRules array = []
 @description('What "now" means to the dotties (an IANA time zone).')
 param userTimezone string = 'Europe/Brussels'
 
+@description('all: the whole app. internal: only the API the agents in the sandboxes call back to (the gateway app).')
+@allowed(['all', 'internal'])
+param serve string = 'all'
+
+@description('Where the agent loop runs: in this app, or inside the dottie\'s own sandbox.')
+@allowed(['app', 'sandbox'])
+param agentMode string = 'sandbox'
+
+@description('How a sandbox reaches the app\'s callback API (the gateway\'s address). Needed with agentMode sandbox.')
+param publicUrl string = ''
+
+@description('Seconds a dottie\'s sandbox stays running after its last run, for follow-up messages.')
+param sandboxIdleSeconds int = 120
+
 @description('The model deployment name (main.bicep).')
-param modelName string = 'gpt-6.1-sol'
+param modelName string = 'gpt-6-luna'
 
 // the same names main.bicep gives its resources
 var suffix = take(uniqueString(resourceGroup().id), 6)
@@ -68,8 +82,11 @@ var appEnv = concat(
     { name: 'SANDBOX_GROUP', value: 'sbg-${suffix}' }
     { name: 'SANDBOX_REGION', value: sandboxRegion }
     { name: 'USER_TIMEZONE', value: userTimezone }
+    { name: 'SANDBOX_IDLE_SECONDS', value: string(sandboxIdleSeconds) }
+    { name: 'SERVE', value: serve }
+    { name: 'AGENT_MODE', value: agentMode }
   ],
-  []
+  empty(publicUrl) ? [] : [{ name: 'PUBLIC_URL', value: publicUrl }]
 )
 
 resource app 'Microsoft.App/containerApps@2025-01-01' = {
@@ -99,7 +116,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
         {
           name: 'app'
           image: image
-          resources: { cpu: json('1'), memory: '2Gi' }
+          resources: serve == 'all' ? { cpu: json('1'), memory: '2Gi' } : { cpu: json('0.5'), memory: '1Gi' }
           env: appEnv
           // traffic only once the app answers: startup runs the migrations
           probes: [
@@ -121,7 +138,7 @@ resource app 'Microsoft.App/containerApps@2025-01-01' = {
       ]
       // Always on: the clock that fires schedules and the dispatcher that wakes dotties run in this process, so it must
       // not scale to zero. One replica; with more, an advisory lock in PostgreSQL keeps a single engine running.
-      scale: { minReplicas: 1, maxReplicas: 1 }
+      scale: { minReplicas: 1, maxReplicas: serve == 'all' ? 1 : 5 }
     }
   }
 }

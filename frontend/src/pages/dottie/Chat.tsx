@@ -149,7 +149,7 @@ function Bubble({ m, d, hueOf }: { m: MessageOut; d: DottieOut; hueOf: (id: numb
 function WorkingStrip({ d }: { d: DottieOut }) {
   const events = useQuery({
     ...listDottieEventsOptions({ path: { dottie_id: d.id }, query: { limit: 12 } }),
-    enabled: d.state !== 'sleeping',
+    enabled: d.state === 'queued' || d.state === 'awake',
   })
   const recent = (events.data ?? [])
     .filter((e) => e.kind !== 'tool_result')
@@ -157,6 +157,12 @@ function WorkingStrip({ d }: { d: DottieOut }) {
     .reverse()
   if (d.state === 'sleeping')
     return <p className="px-4 pb-1 text-xs text-fg-muted">{d.name} is asleep. Write to wake them.</p>
+  if (d.state === 'idle')
+    return (
+      <p className="px-4 pb-1 text-xs text-fg-muted">
+        {d.name} is awake and idle. A reply is quick now; it goes to sleep soon.
+      </p>
+    )
   return (
     <div className="space-y-0.5 px-4 pb-1.5 text-xs text-fg-muted" aria-live="polite">
       <p className="flex items-center gap-1.5 font-medium text-dot-ink">

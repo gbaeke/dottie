@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +17,7 @@ from ..engine.runner import Runner
 from ..engine.sandboxes import SandboxProvider, make_provider
 from ..mcp_server import build_mcp
 from ..middleware import RequestContext
-from . import activity, chat, dotties, schedules, skills, system, wiki
+from . import activity, chat, dotties, internal, schedules, skills, system, wiki
 from .errors import ApiError, install_handlers
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository (or /app in the image): alembic.ini, frontend/dist
@@ -41,18 +42,21 @@ def create_app(
         sessions = sessionmaker(db, expire_on_commit=False)
         app.state.session_factory = sessions
         app.state.provider = provider or make_provider(settings)
+        app.state.run_tools = {}  # run id -> its tools (internal.py)
+        app.state.llm_client = httpx.AsyncClient(timeout=httpx.Timeout(300, connect=15))  # for the model proxy
         with sessions() as s:
             seed.seed_skills(s)
             s.commit()
         engine = Engine(settings, db, sessions, Runner(settings, sessions, app.state.provider, model_factory))
         app.state.engine = engine
-        if settings.engine_enabled:
+        if settings.engine_enabled and settings.serve == "all":  # the gateway only answers sandboxes
             engine.start()
         try:
-            async with mcp.session_manager.run():
+            async with mcp.session_manager.run() if settings.serve == "all" else nullcontext():
                 yield
         finally:
             engine.stop()
+            await app.state.llm_client.aclose()
             db.dispose()
 
     app = FastAPI(
@@ -73,11 +77,14 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    for module in (dotties, chat, wiki, schedules, skills, activity, system):
-        api.include_router(module.router)
+    app.include_router(internal.router)  # what the agent in a sandbox calls back to
+    if settings.serve == "all":
+        for module in (dotties, chat, wiki, schedules, skills, activity, system):
+            api.include_router(module.router)
     app.include_router(api)
-    app.mount("/mcp", mcp_app)  # Dottie as an MCP server: see mcp_server.py
-    _serve_frontend(app, ROOT / "frontend" / "dist")
+    if settings.serve == "all":
+        app.mount("/mcp", mcp_app)  # Dottie as an MCP server: see mcp_server.py
+        _serve_frontend(app, ROOT / "frontend" / "dist")  # last: its catch-all takes every path left
     return app
 
 

@@ -10,7 +10,7 @@ source scripts/lib.sh
 
 RG="${AZURE_RESOURCE_GROUP:-rg-dottie}"
 STATE=".azure/$RG.env"
-STATE_VARS="LOCATION APP_LOCATION ALLOWED_IPS"
+STATE_VARS="LOCATION APP_LOCATION ALLOWED_IPS AGENT_MODE"
 
 # az_login: exit unless az is installed and logged in; prints the subscription
 az_login() {

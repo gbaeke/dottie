@@ -11,7 +11,9 @@ work), `aca` (Azure Container Apps Sandboxes: suspend and resume with disk and m
 import logging
 import shlex
 import subprocess
+import threading
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 
 from deepagents.backends.protocol import (
     ExecuteResponse,
@@ -39,6 +41,10 @@ class SandboxProvider(ABC):
     @abstractmethod
     def wake(self, dottie: Dottie) -> tuple[SandboxBackendProtocol | None, str | None]:
         """A running sandbox for this dottie (creating it the first time) and its ref to store on the dottie."""
+
+    def attach(self, ref: str) -> SandboxBackendProtocol | None:  # noqa: ARG002
+        """A handle on a sandbox that is known to be running, with no call to the platform. None: not supported."""
+        return None
 
     @abstractmethod
     def sleep(self, ref: str) -> None: ...
@@ -112,14 +118,17 @@ class DockerSandbox(BaseSandbox):
 class DockerProvider(SandboxProvider):
     name = "docker"
 
-    def __init__(self, image: str):
-        self.image = image
+    def __init__(self, image: str, network: str = "host"):
+        self.image, self.network = image, network
 
     def wake(self, dottie: Dottie) -> tuple[SandboxBackendProtocol, str]:
         name = f"dottie-{dottie.slug}"
+        if self.state(name) != "none" and self._network(name) != self.network:
+            _docker("rm", "-f", name)  # made for another network setting; its workspace volume stays
         if self.state(name) == "none":
             made = _docker(
                 *("run", "-d", "--name", name, "--label", "app=dottie", "--memory", "1g", "--cpus", "1"),
+                *("--network", self.network),
                 *("-v", f"{name}:{WORKDIR}", "-w", WORKDIR, self.image, "sleep", "infinity"),
                 timeout=600,  # the first time pulls the image
             )
@@ -128,6 +137,12 @@ class DockerProvider(SandboxProvider):
         elif self.state(name) == "stopped":
             _docker("start", name)
         return DockerSandbox(name), name
+
+    def attach(self, ref: str) -> SandboxBackendProtocol:
+        return DockerSandbox(ref)
+
+    def _network(self, name: str) -> str:
+        return _docker("inspect", "-f", "{{.HostConfig.NetworkMode}}", name).stdout.decode().strip()
 
     def sleep(self, ref: str) -> None:
         _docker("stop", "-t", "1", ref)
@@ -204,11 +219,14 @@ class AcaProvider(SandboxProvider):
         else:
             client = self.group.begin_create_sandbox(
                 disk="ubuntu",
-                auto_suspend_seconds=self.idle_seconds,
+                auto_suspend_seconds=max(300, self.idle_seconds * 2),  # a backstop: the engine stops idle ones sooner
                 labels={"app": "dottie", "dottie": dottie.slug},
             ).result()
             client.exec(f"mkdir -p {WORKDIR}")
         return AcaSandbox(client), client.sandbox_id
+
+    def attach(self, ref: str) -> SandboxBackendProtocol:
+        return AcaSandbox(self.group.get_sandbox_client(ref))
 
     def sleep(self, ref: str) -> None:
         self.group.get_sandbox_client(ref).stop()
@@ -226,9 +244,53 @@ class AcaProvider(SandboxProvider):
         return "running" if state == "running" else "stopped"
 
 
+class LazySandbox(BaseSandbox):
+    """A sandbox that is only started when the agent first uses it. Most wakings are a chat answer that never touches
+    the computer, and a resume costs time and money: so the provider is asked for a running sandbox on first use."""
+
+    def __init__(self, provider: SandboxProvider, dottie: Dottie, remember: Callable[[str], None]):
+        self.provider, self.dottie, self.remember = provider, dottie, remember
+        self.started: str | None = None  # the ref, once it is running
+        self._inner: SandboxBackendProtocol | None = None
+        self._lock = threading.Lock()
+
+    @property
+    def id(self) -> str:
+        return f"dottie-{self.dottie.slug}"
+
+    def _sandbox(self) -> SandboxBackendProtocol:
+        with self._lock:
+            if self._inner is None:
+                inner, self.started = self.provider.wake(self.dottie)
+                if inner is None:
+                    raise RuntimeError("this installation has no sandboxes (SANDBOX_BACKEND=none)")
+                self._inner = inner
+                if self.started:
+                    self.remember(self.started)
+            return self._inner
+
+    def execute(self, command: str, *, timeout: int | None = None) -> ExecuteResponse:
+        try:
+            return self._sandbox().execute(command, timeout=timeout)
+        except Exception as e:
+            return ExecuteResponse(output=f"My computer did not start: {e}", exit_code=1)
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResponse]:
+        try:
+            return self._sandbox().upload_files(files)
+        except Exception as e:
+            return [FileUploadResponse(path=path, error=str(e)) for path, _ in files]
+
+    def download_files(self, paths: list[str]) -> list[FileDownloadResponse]:
+        try:
+            return self._sandbox().download_files(paths)
+        except Exception as e:
+            return [FileDownloadResponse(path=path, error=str(e)) for path in paths]
+
+
 def make_provider(settings: Settings) -> SandboxProvider:
     if settings.sandbox_backend == "docker":
-        return DockerProvider(settings.sandbox_image)
+        return DockerProvider(settings.sandbox_image, settings.sandbox_docker_network)
     if settings.sandbox_backend == "aca":
         return AcaProvider(settings)
     return NoSandbox()

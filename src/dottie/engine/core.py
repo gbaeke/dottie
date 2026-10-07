@@ -6,20 +6,25 @@ decides which, when there are several replicas); everything it does is rows in, 
 
 import logging
 import threading
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import Engine as SqlEngine
-from sqlalchemy import text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
-from ..models import Run
+from ..models import Dottie, Run
 from . import bus, scheduler
 from .runner import Runner
+from .tools import record
 
 log = logging.getLogger(__name__)
 
 LEADER_LOCK = 0x646F74  # any constant: only the process holding it runs the loop
+REAP_EVERY = 5.0  # seconds between looks for idle sandboxes
+RECONCILE_EVERY = 30.0  # seconds between checks that the sandboxes we think are running are
 
 
 class Engine:
@@ -29,6 +34,7 @@ class Engine:
         self.active: dict[int, Future[int]] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._nudge = threading.Event()  # set by the API when something new is waiting: no need to wait for the poll
         self._thread: threading.Thread | None = None
         self._leader = None  # a connection that holds the advisory lock while this process leads
 
@@ -44,8 +50,13 @@ class Engine:
         self._thread = threading.Thread(target=self._loop, name="dottie-engine", daemon=True)
         self._thread.start()
 
+    def nudge(self) -> None:
+        """Look for work now: a message was just posted."""
+        self._nudge.set()
+
     def stop(self) -> None:
         self._stop.set()
+        self._nudge.set()
         if self._thread:
             self._thread.join(timeout=10)
         self.pool.shutdown(wait=False, cancel_futures=True)
@@ -53,10 +64,21 @@ class Engine:
             self._leader.close()
 
     def _loop(self) -> None:
-        while not self._stop.wait(self.settings.poll_seconds):
+        next_reap = next_reconcile = 0.0
+        while not self._stop.is_set():
+            self._nudge.wait(self.settings.poll_seconds)
+            self._nudge.clear()
+            if self._stop.is_set():
+                break
             try:
                 if self._is_leader():
                     self.tick()
+                    if time.monotonic() >= next_reap:
+                        next_reap = time.monotonic() + REAP_EVERY
+                        self.reap_idle()
+                    if time.monotonic() >= next_reconcile:
+                        next_reconcile = time.monotonic() + RECONCILE_EVERY
+                        self.reconcile()
             except Exception:
                 log.exception("engine tick failed")
 
@@ -94,6 +116,61 @@ class Engine:
                     future.add_done_callback(lambda _, d=dottie_id: self._done(d))
                     woken.append(dottie_id)
         return woken
+
+    def reap_idle(self, now: datetime | None = None) -> list[int]:
+        """Stop the sandboxes of dotties idle for `sandbox_idle_seconds`: no run in progress, and the last one ended
+        that long ago. Until then a sandbox stays warm, so a follow-up message finds it running."""
+        now = now or datetime.now(UTC)
+        cutoff = now - timedelta(seconds=self.settings.sandbox_idle_seconds)
+        with self.sessions() as s:
+            last = (
+                select(Run.dottie_id, func.max(Run.finished_at).label("at"))
+                .group_by(Run.dottie_id)
+                .having(func.count().filter(Run.status == "running") == 0)
+                .subquery()
+            )
+            rows = s.execute(
+                select(Dottie.id, Dottie.sandbox_ref)
+                .join(last, last.c.dottie_id == Dottie.id)
+                .where(Dottie.sandbox_awake, Dottie.sandbox_ref.is_not(None), last.c.at <= cutoff)
+            ).all()
+        stopped: list[int] = []
+        for dottie_id, ref in rows:
+            try:
+                if ref is not None and self.runner.provider.state(ref) not in ("stopped", "none"):
+                    self.runner.provider.sleep(ref)
+                    stopped.append(dottie_id)
+                self._set_awake(dottie_id, False)
+                record(self.sessions, dottie_id, None, "sleep", "Went to sleep.")
+            except Exception:
+                log.exception("could not stop the sandbox of dottie %s", dottie_id)
+        return stopped
+
+    def reconcile(self) -> list[int]:
+        """Dotties marked awake whose sandbox is in fact stopped (someone stopped it in the portal, the platform
+        suspended it): mark them asleep, so what the UI says is what is true."""
+        with self.sessions() as s:
+            rows = s.execute(
+                select(Dottie.id, Dottie.sandbox_ref).where(Dottie.sandbox_awake, Dottie.sandbox_ref.is_not(None))
+            ).all()
+            busy = set(s.scalars(select(Run.dottie_id).where(Run.status == "running")))
+        changed: list[int] = []
+        for dottie_id, ref in rows:
+            if dottie_id in busy or ref is None:
+                continue
+            try:
+                if self.runner.provider.state(ref) in ("stopped", "none"):
+                    self._set_awake(dottie_id, False)
+                    record(self.sessions, dottie_id, None, "sleep", "Its computer stopped.")
+                    changed.append(dottie_id)
+            except Exception:
+                log.exception("could not check the sandbox of dottie %s", dottie_id)
+        return changed
+
+    def _set_awake(self, dottie_id: int, awake: bool) -> None:
+        with self.sessions() as s:
+            s.get_one(Dottie, dottie_id).sandbox_awake = awake
+            s.commit()
 
     def _done(self, dottie_id: int) -> None:
         with self._lock:

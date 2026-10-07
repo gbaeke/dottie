@@ -92,10 +92,10 @@ resource pgDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2025-08-01' =
 
 // -- The model: an Azure AI Services (Foundry) account with one deployment, Entra sign-in only (no key exists) ---------
 @description('The model deployment dotties think with.')
-param modelName string = 'gpt-6.1-sol'
+param modelName string = 'gpt-6-luna'
 
 @description('Model version.')
-param modelVersion string = '2026-09-29'
+param modelVersion string = '2026-09-22'
 
 @description('Capacity in thousands of tokens per minute.')
 param modelCapacity int = 50

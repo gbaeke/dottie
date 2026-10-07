@@ -73,7 +73,7 @@ class DottieOut(BaseModel):
     tools: list[str]
     mcp_servers: list[McpServer]
     skill_ids: list[int]
-    state: str  # sleeping | queued | awake
+    state: str  # sleeping | idle (awake, its computer warm for follow-ups) | queued | awake
     unread: int  # messages from it the user has not read
     next_run_at: datetime | None  # its next schedule
     last_woke_at: datetime | None
@@ -111,6 +111,15 @@ def present(session: Session, dotties: list[Dottie]) -> list[DottieOut]:
     queued = set(
         session.scalars(select(Message.recipient_id).where(Message.status == "pending", Message.recipient_id.in_(ids)))
     )
+
+    def state(d: Dottie) -> str:
+        if d.id in awake:
+            return "awake"
+        if d.id in queued:
+            return "queued"
+        # no run now, but its computer still runs for follow-ups until the engine stops it (Engine.reap_idle)
+        return "idle" if d.sandbox_awake else "sleeping"
+
     unread = dict(
         session.execute(
             select(Message.sender_id, func.count())
@@ -137,7 +146,7 @@ def present(session: Session, dotties: list[Dottie]) -> list[DottieOut]:
             tools=d.tools,
             mcp_servers=[McpServer.model_validate(m) for m in d.mcp_servers],
             skill_ids=[k.id for k in d.skills],
-            state="awake" if d.id in awake else "queued" if d.id in queued else "sleeping",
+            state=state(d),
             unread=unread.get(d.id, 0),
             next_run_at=upcoming.get(d.id),
             last_woke_at=d.last_woke_at,
@@ -166,7 +175,8 @@ def list_templates() -> list[TemplateOut]:
 
 @router.get("/dotties")
 def list_dotties(session: SessionDep) -> list[DottieOut]:
-    return present(session, list(session.scalars(select(Dottie).order_by(Dottie.created_at, Dottie.id))))
+    dotties = list(session.scalars(select(Dottie).order_by(Dottie.created_at, Dottie.id)))
+    return present(session, dotties)
 
 
 @router.post("/dotties", status_code=201)

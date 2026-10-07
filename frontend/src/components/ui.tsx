@@ -10,11 +10,22 @@ export const Spinner = ({ className }: { className?: string }) => (
   <Loader2 className={cn('size-4 animate-spin', className)} aria-label="Loading" />
 )
 
-const STATE_LABEL: Record<string, string> = { sleeping: 'Asleep', queued: 'Waking up', awake: 'Awake' }
+const STATE_LABEL: Record<string, string> = {
+  sleeping: 'Asleep',
+  idle: 'Awake, idle',
+  queued: 'Waking up',
+  awake: 'Working',
+}
 
 export function StatePill({ state }: { state: string }) {
   const tone =
-    state === 'awake' ? 'bg-ok/15 text-ok' : state === 'queued' ? 'bg-warn/15 text-warn' : 'bg-muted text-fg-muted'
+    state === 'awake'
+      ? 'bg-ok/15 text-ok'
+      : state === 'idle'
+        ? 'bg-ok/10 text-ok'
+        : state === 'queued'
+          ? 'bg-warn/15 text-warn'
+          : 'bg-muted text-fg-muted'
   return (
     <span className={cn('inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium', tone)}>
       <span className={cn('size-1.5 rounded-full bg-current', state === 'awake' && 'animate-pulse')} />
