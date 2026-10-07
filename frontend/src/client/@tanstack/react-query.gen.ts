@@ -3,8 +3,8 @@
 import { type DefaultError, type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { createConversation, createDottie, createSchedule, createSkill, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSkill, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSkills, listTemplates, listToolkits, markRead, type Options, readInbox, readPage, runNow, sendMessage, stream, system, traffic, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
-import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListToolkitsData, ListToolkitsResponse, MarkReadData, MarkReadError, MarkReadResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, StreamData, SystemData, SystemResponse, TrafficData, TrafficError, TrafficResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
+import { createConversation, createDottie, createSchedule, createSkill, createToken, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSkill, deleteToken, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSkills, listTemplates, listTokens, listToolkits, markRead, me, type Options, readInbox, readPage, runNow, sendMessage, stream, system, traffic, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
+import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, CreateTokenData, CreateTokenError, CreateTokenResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteTokenData, DeleteTokenError, DeleteTokenResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListTokensData, ListTokensResponse, ListToolkitsData, ListToolkitsResponse, MarkReadData, MarkReadError, MarkReadResponse, MeData, MeResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, StreamData, SystemData, SystemResponse, TrafficData, TrafficError, TrafficResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -55,6 +55,26 @@ export const healthOptions = (options?: Options<HealthData>) => queryOptions<Hea
         return data;
     },
     queryKey: healthQueryKey(options)
+});
+
+export const meQueryKey = (options?: Options<MeData>) => createQueryKey('me', options);
+
+/**
+ * Me
+ *
+ * Who is signed in; null when sign-in is off.
+ */
+export const meOptions = (options?: Options<MeData>) => queryOptions<MeResponse, DefaultError, MeResponse, ReturnType<typeof meQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await me({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: meQueryKey(options)
 });
 
 export const listToolkitsQueryKey = (options?: Options<ListToolkitsData>) => createQueryKey('listToolkits', options);
@@ -801,3 +821,55 @@ export const streamOptions = (options?: Options<StreamData>) => queryOptions<unk
     },
     queryKey: streamQueryKey(options)
 });
+
+export const listTokensQueryKey = (options?: Options<ListTokensData>) => createQueryKey('listTokens', options);
+
+/**
+ * List Tokens
+ */
+export const listTokensOptions = (options?: Options<ListTokensData>) => queryOptions<ListTokensResponse, DefaultError, ListTokensResponse, ReturnType<typeof listTokensQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await listTokens({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: listTokensQueryKey(options)
+});
+
+/**
+ * Create Token
+ */
+export const createTokenMutation = (options?: Partial<Options<CreateTokenData>>): UseMutationOptions<CreateTokenResponse, CreateTokenError, Options<CreateTokenData>> => {
+    const mutationOptions: UseMutationOptions<CreateTokenResponse, CreateTokenError, Options<CreateTokenData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await createToken({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Delete Token
+ */
+export const deleteTokenMutation = (options?: Partial<Options<DeleteTokenData>>): UseMutationOptions<DeleteTokenResponse, DeleteTokenError, Options<DeleteTokenData>> => {
+    const mutationOptions: UseMutationOptions<DeleteTokenResponse, DeleteTokenError, Options<DeleteTokenData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await deleteToken({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};

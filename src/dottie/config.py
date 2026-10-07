@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://dottie:dottie@localhost:54845/dottie"
     database_entra_auth: bool = False  # Azure: a managed identity token instead of a password (the deploy sets it)
 
+    # --- Sign-in (WorkOS AuthKit): off while WORKOS_CLIENT_ID is empty, and the app then has one local user ---
+    workos_client_id: str = ""
+    workos_api_key: str = ""
+    session_secret: str = ""  # encrypts the session cookie
+    allowed_users: str = ""  # comma separated emails; empty: everyone WorkOS lets in
+    public_url: str = ""  # the address people use, when a proxy hides it (Azure Container Apps)
+    max_dotties_per_user: int = 20
+
     # --- The engine: the dispatcher that wakes dotties and the scheduler that fires their schedules ---
     engine_enabled: bool = True  # tests turn it off and drive the dispatcher by hand
     poll_seconds: float = 0.5  # how often the dispatcher looks for pending messages and due schedules
@@ -33,7 +41,7 @@ class Settings(BaseSettings):
     # --- Where the agent's loop runs ---
     agent_mode: Literal["app", "sandbox"] = "app"  # app: in this process; sandbox: inside the dottie's own sandbox
     serve: Literal["all", "internal"] = "all"  # internal: only the sandbox callback API (the gateway app on Azure)
-    public_url: str = ""  # how a sandbox reaches this app (agent_mode=sandbox); empty: http://localhost:<port> (docker)
+    gateway_url: str = ""  # how a sandbox reaches the callback API (agent_mode=sandbox); empty: http://localhost:<port>
 
     # --- The sandbox: a dottie's own computer ---
     sandbox_backend: Literal["none", "docker", "aca"] = "none"  # none: no shell, only the wiki
@@ -46,9 +54,17 @@ class Settings(BaseSettings):
     sandbox_idle_seconds: int = 120  # keep a dottie's sandbox running this long after its last run (for follow-ups)
 
     @property
+    def auth_enabled(self) -> bool:
+        return bool(self.workos_client_id)
+
+    def user_allowed(self, email: str) -> bool:
+        allowed = {e.strip().lower() for e in self.allowed_users.split(",") if e.strip()}
+        return not allowed or email.lower() in allowed
+
+    @property
     def callback_url(self) -> str:
         """Where the agent in a sandbox finds this app."""
-        return (self.public_url or f"http://localhost:{self.port}").rstrip("/")
+        return (self.gateway_url or f"http://localhost:{self.port}").rstrip("/")
 
     @property
     def llm_configured(self) -> bool:

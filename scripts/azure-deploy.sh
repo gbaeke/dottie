@@ -4,6 +4,8 @@
 #   scripts/azure-deploy.sh
 #   ALLOWED_IPS=203.0.113.4/32 scripts/azure-deploy.sh   # only these addresses (ALLOWED_IPS= opens it again)
 #   AGENT_MODE=app scripts/azure-deploy.sh               # the agent loop in the app (default: sandbox)
+#   WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... [ALLOWED_USERS=a@x,b@y] scripts/azure-deploy.sh   # sign-in on
+#   WORKOS_CLIENT_ID= scripts/azure-deploy.sh            # sign-in off again
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/azure-lib.sh
@@ -13,6 +15,10 @@ need docker
 az_login
 [ -f "$STATE" ] || { echo "No $STATE: create the infrastructure first with scripts/azure-up.sh" >&2; exit 1; }
 load_state
+if [ -n "${WORKOS_CLIENT_ID:-}" ]; then
+  [ -n "${WORKOS_API_KEY:-}" ] || { echo "WORKOS_CLIENT_ID is set: also set WORKOS_API_KEY." >&2; exit 1; }
+  SESSION_SECRET="${SESSION_SECRET:-$(openssl rand -base64 32)}"
+fi
 save_state
 
 out() { az deployment group show -g "$RG" -n infra --query "properties.outputs.$1.value" -o tsv; }
@@ -35,9 +41,16 @@ GATE=$(az deployment group create -g "$RG" -n gate -f infra/app.bicep \
 echo "== App (app.bicep)"
 FQDN=$(az deployment group create -g "$RG" -n app -f infra/app.bicep \
   -p location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" ipRules="$(ip_rules_json)" agentMode="${AGENT_MODE:-sandbox}" \
-  publicUrl="https://$GATE" --query properties.outputs.fqdn.value -o tsv)
+  gatewayUrl="https://$GATE" \
+  workosClientId="${WORKOS_CLIENT_ID:-}" workosApiKey="${WORKOS_API_KEY:-}" sessionSecret="${SESSION_SECRET:-}" \
+  allowedUsers="${ALLOWED_USERS:-}" --query properties.outputs.fqdn.value -o tsv)
+
+if [ -n "${WORKOS_CLIENT_ID:-}" ]; then  # the app's address is where WorkOS may send people back to after sign-in
+  scripts/workos-uris.sh add "https://$FQDN" ||
+    echo "Add in WorkOS (Redirects): redirect URI https://$FQDN/auth/callback, sign-out URI https://$FQDN/"
+fi
 
 echo
 echo "Running at https://$FQDN (the first request after an idle period starts it: a few seconds)"
-[ -n "${ALLOWED_IPS:-}" ] ||
+[ -n "${WORKOS_CLIENT_ID:-}" ] || [ -n "${ALLOWED_IPS:-}" ] ||
   echo "No sign-in and no IP rules: anyone with this URL can use the app."

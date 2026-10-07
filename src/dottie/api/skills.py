@@ -7,9 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
+from ..auth import UserDep
 from ..db import SessionDep
 from ..models import DottieSkill, Skill
-from .errors import ApiError, get_or_404
+from .errors import ApiError
 from .util import build
 
 router = APIRouter(prefix="/skills", tags=["skills"])
@@ -45,19 +46,25 @@ def _out(session: SessionDep, skill: Skill) -> SkillOut:
     return build(SkillOut, skill, used_by=used)
 
 
-def _editable(skill: Skill) -> None:
+def _editable(session: SessionDep, user: UserDep, skill_id: int) -> Skill:
+    """A skill of the user's own. Built-in ones are everyone's and cannot be changed; someone else's does not exist."""
+    skill = session.get(Skill, skill_id)
+    if skill is None or skill.owner_id not in ("", user.id):
+        raise ApiError("not_found", f"Skill {skill_id} not found", 404)
     if skill.builtin:
         raise ApiError("builtin_skill", "Built-in skills ship with Dottie; copy it under a new name to change it.", 409)
+    return skill
 
 
 @router.get("")
-def list_skills(session: SessionDep) -> list[SkillOut]:
-    return [_out(session, s) for s in session.scalars(select(Skill).order_by(Skill.builtin.desc(), Skill.name))]
+def list_skills(session: SessionDep, user: UserDep) -> list[SkillOut]:
+    visible = select(Skill).where(Skill.owner_id.in_(["", user.id])).order_by(Skill.builtin.desc(), Skill.name)
+    return [_out(session, s) for s in session.scalars(visible)]
 
 
 @router.post("", status_code=201)
-def create_skill(data: SkillIn, session: SessionDep) -> SkillOut:
-    skill = Skill(**data.model_dump())
+def create_skill(data: SkillIn, session: SessionDep, user: UserDep) -> SkillOut:
+    skill = Skill(owner_id=user.id, **data.model_dump())
     session.add(skill)
     try:
         session.commit()
@@ -67,9 +74,8 @@ def create_skill(data: SkillIn, session: SessionDep) -> SkillOut:
 
 
 @router.patch("/{skill_id}")
-def update_skill(skill_id: int, data: SkillPatch, session: SessionDep) -> SkillOut:
-    skill = get_or_404(session, Skill, skill_id)
-    _editable(skill)
+def update_skill(skill_id: int, data: SkillPatch, session: SessionDep, user: UserDep) -> SkillOut:
+    skill = _editable(session, user, skill_id)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(skill, field, value)
     session.commit()
@@ -77,8 +83,7 @@ def update_skill(skill_id: int, data: SkillPatch, session: SessionDep) -> SkillO
 
 
 @router.delete("/{skill_id}", status_code=204)
-def delete_skill(skill_id: int, session: SessionDep) -> None:
-    skill = get_or_404(session, Skill, skill_id)
-    _editable(skill)
+def delete_skill(skill_id: int, session: SessionDep, user: UserDep) -> None:
+    skill = _editable(session, user, skill_id)
     session.delete(skill)
     session.commit()

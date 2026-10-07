@@ -8,6 +8,6 @@ const backend = `http://localhost:${process.env.PORT ?? '8370'}` // the backend'
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
-  // in dev, Vite serves the app and hands the API to the backend
-  server: { proxy: { '/api': backend } },
+  // in dev, Vite serves the app and hands the API and the sign-in to the backend
+  server: { proxy: { '/api': backend, '/auth': backend } },
 })

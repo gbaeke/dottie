@@ -109,10 +109,10 @@ TEMPLATES = [
 
 def seed_skills(session: Session) -> None:
     """Add the built-in skills, and refresh their text on every start so improvements reach everyone."""
-    existing = {s.name: s for s in session.scalars(select(Skill).where(Skill.builtin))}
+    existing = {s.name: s for s in session.scalars(select(Skill).where(Skill.builtin, Skill.owner_id == ""))}
     for name, description, body in BUILTIN_SKILLS:
         skill = existing.get(name)
         if skill is None:
-            session.add(Skill(name=name, description=description, body=body, builtin=True))
+            session.add(Skill(owner_id="", name=name, description=description, body=body, builtin=True))
         else:
             skill.description, skill.body = description, body

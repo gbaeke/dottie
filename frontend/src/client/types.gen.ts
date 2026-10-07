@@ -293,6 +293,13 @@ export type McpServer = {
 };
 
 /**
+ * MeOut
+ */
+export type MeOut = {
+    user: User | null;
+};
+
+/**
  * MessageIn
  */
 export type MessageIn = {
@@ -685,6 +692,64 @@ export type TemplateOut = {
 };
 
 /**
+ * TokenCreated
+ */
+export type TokenCreated = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string | null;
+    /**
+     * Token
+     */
+    token: string;
+};
+
+/**
+ * TokenIn
+ */
+export type TokenIn = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
+ * TokenOut
+ */
+export type TokenOut = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Last Used At
+     */
+    last_used_at: string | null;
+};
+
+/**
  * ToolkitOut
  */
 export type ToolkitOut = {
@@ -696,6 +761,20 @@ export type ToolkitOut = {
      * Description
      */
     description: string;
+};
+
+/**
+ * User
+ */
+export type User = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Email
+     */
+    email: string;
 };
 
 /**
@@ -745,6 +824,22 @@ export type HealthResponses = {
 };
 
 export type HealthResponse = HealthResponses[keyof HealthResponses];
+
+export type MeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/me';
+};
+
+export type MeResponses = {
+    /**
+     * Successful Response
+     */
+    200: MeOut;
+};
+
+export type MeResponse = MeResponses[keyof MeResponses];
 
 export type ListToolkitsData = {
     body?: never;
@@ -1734,3 +1829,76 @@ export type StreamResponses = {
      */
     200: unknown;
 };
+
+export type ListTokensData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/tokens';
+};
+
+export type ListTokensResponses = {
+    /**
+     * Response List Tokens
+     *
+     * Successful Response
+     */
+    200: Array<TokenOut>;
+};
+
+export type ListTokensResponse = ListTokensResponses[keyof ListTokensResponses];
+
+export type CreateTokenData = {
+    body: TokenIn;
+    path?: never;
+    query?: never;
+    url: '/api/tokens';
+};
+
+export type CreateTokenErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateTokenError = CreateTokenErrors[keyof CreateTokenErrors];
+
+export type CreateTokenResponses = {
+    /**
+     * Successful Response
+     */
+    201: TokenCreated;
+};
+
+export type CreateTokenResponse = CreateTokenResponses[keyof CreateTokenResponses];
+
+export type DeleteTokenData = {
+    body?: never;
+    path: {
+        /**
+         * Token Id
+         */
+        token_id: number;
+    };
+    query?: never;
+    url: '/api/tokens/{token_id}';
+};
+
+export type DeleteTokenErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteTokenError = DeleteTokenErrors[keyof DeleteTokenErrors];
+
+export type DeleteTokenResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type DeleteTokenResponse = DeleteTokenResponses[keyof DeleteTokenResponses];

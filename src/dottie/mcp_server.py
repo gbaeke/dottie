@@ -7,20 +7,59 @@ waits (a while) for its answer.
 import asyncio
 import time
 from collections.abc import Callable
+from contextvars import ContextVar
+from datetime import UTC, datetime
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .api.tokens import hash_token
 from .engine import bus
-from .models import Conversation, Dottie, Message, WikiPage
+from .models import ApiToken, Conversation, Dottie, Message, WikiPage
 
 Sessions = Callable[[], sessionmaker[Session]]  # a function: the database only exists once the app has started
+OWNER: ContextVar[str] = ContextVar("mcp_owner", default="local")  # whose dotties the caller may use
+
+
+class McpAccess:
+    """Puts a gate in front of the MCP app: with sign-in on, a personal access token says whose dotties a call may use
+    (without one the endpoint answers 401); with sign-in off there is the one local user."""
+
+    def __init__(self, app: ASGIApp, auth_enabled: bool, sessions: Sessions):
+        self.app, self.auth_enabled, self.sessions = app, auth_enabled, sessions
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not self.auth_enabled:
+            return await self.app(scope, receive, send)
+        header = dict(scope["headers"]).get(b"authorization", b"").decode()
+        owner = await asyncio.to_thread(self._owner, header.removeprefix("Bearer ").strip())
+        if owner is None:
+            body = {"error": {"code": "unauthenticated", "message": "Send a personal access token as a Bearer token."}}
+            return await JSONResponse(body, 401)(scope, receive, send)
+        reset = OWNER.set(owner)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            OWNER.reset(reset)
+
+    def _owner(self, token: str) -> str | None:
+        if not token:
+            return None
+        with self.sessions()() as s:
+            row = s.scalar(select(ApiToken).where(ApiToken.token_hash == hash_token(token)))
+            if row is None:
+                return None
+            row.last_used_at = datetime.now(UTC)
+            s.commit()
+            return row.owner_id
 
 
 def _find(s: Session, name: str) -> Dottie:
-    found = s.scalar(select(Dottie).where(Dottie.slug == name.strip().lower()))
+    found = s.scalar(select(Dottie).where(Dottie.slug == name.strip().lower(), Dottie.owner_id == OWNER.get()))
     if found is None:
         raise ValueError(f"No dottie {name!r}. Use list_dotties to see their names.")
     return found
@@ -64,7 +103,7 @@ def build_mcp(sessions: Sessions) -> FastMCP:
     def list_dotties() -> str:
         """The dotties that exist: their name (use it to address them) and what each is for."""
         with sessions()() as s:
-            rows = s.scalars(select(Dottie).order_by(Dottie.name)).all()
+            rows = s.scalars(select(Dottie).where(Dottie.owner_id == OWNER.get()).order_by(Dottie.name)).all()
             return "\n".join(f"- {d.slug}: {d.name}, {d.role}" for d in rows) or "There are no dotties yet."
 
     @mcp.tool()

@@ -1,6 +1,6 @@
 """Creating and tuning dotties: personality, toolkits, skills, MCP servers."""
 
-import contextlib
+import logging
 import re
 from datetime import datetime
 from typing import Annotated
@@ -10,12 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..auth import UserDep
 from ..db import SessionDep
 from ..engine import files
 from ..engine.seed import TEMPLATES
-from ..engine.tools import DEFAULT_TOOLKITS, TOOLKITS
+from ..engine.tools import DEFAULT_TOOLKITS, TOOLKITS, is_public_url
 from ..models import Dottie, Message, Run, Schedule, Skill
-from .errors import ApiError, get_or_404
+from .access import owned_dottie
+from .errors import ApiError
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["dotties"])
 
@@ -156,10 +160,21 @@ def present(session: Session, dotties: list[Dottie]) -> list[DottieOut]:
     ]
 
 
-def _skills(session: Session, ids: list[int]) -> list[Skill]:
-    found = list(session.scalars(select(Skill).where(Skill.id.in_(ids))))
+def _check_servers(request: Request, servers: list[McpServer]) -> None:
+    """With several users, an MCP server must be on a public address: the app is the one calling it."""
+    if request.app.state.settings.auth_enabled:
+        for server in servers:
+            if not is_public_url(str(server.url)):
+                raise ApiError("invalid", f"MCP server {server.name!r} must be on a public address.", 422)
+
+
+def _skills(session: Session, ids: list[int], owner_id: str) -> list[Skill]:
+    """The skills to give a dottie: built in ones and the user's own, never someone else's, one per name."""
+    found = list(session.scalars(select(Skill).where(Skill.id.in_(ids), Skill.owner_id.in_(["", owner_id]))))
     if len(found) != len(set(ids)):
         raise ApiError("invalid", "One of the skills does not exist.", 422)
+    if len({k.name for k in found}) != len(found):
+        raise ApiError("invalid", "Two of the skills have the same name.", 422)
     return found
 
 
@@ -174,19 +189,25 @@ def list_templates() -> list[TemplateOut]:
 
 
 @router.get("/dotties")
-def list_dotties(session: SessionDep) -> list[DottieOut]:
-    dotties = list(session.scalars(select(Dottie).order_by(Dottie.created_at, Dottie.id)))
+def list_dotties(session: SessionDep, user: UserDep) -> list[DottieOut]:
+    mine = select(Dottie).where(Dottie.owner_id == user.id).order_by(Dottie.created_at, Dottie.id)
+    dotties = list(session.scalars(mine))
     return present(session, dotties)
 
 
 @router.post("/dotties", status_code=201)
-def create_dottie(data: DottieIn, session: SessionDep) -> DottieOut:
+def create_dottie(data: DottieIn, session: SessionDep, request: Request, user: UserDep) -> DottieOut:
+    limit = request.app.state.settings.max_dotties_per_user
+    if (session.scalar(select(func.count()).where(Dottie.owner_id == user.id)) or 0) >= limit:
+        raise ApiError("limit_reached", f"You can have at most {limit} dotties.", 409)
+    _check_servers(request, data.mcp_servers)
     dottie = Dottie(
+        owner_id=user.id,
         **data.model_dump(exclude={"skill_ids", "mcp_servers"}),
         mcp_servers=[m.model_dump(mode="json") for m in data.mcp_servers],
         slug=_slug(session, data.name),
     )
-    dottie.skills = _skills(session, data.skill_ids)
+    dottie.skills = _skills(session, data.skill_ids, user.id)
     session.add(dottie)
     session.flush()
     files.seed_wiki(session, dottie)
@@ -195,29 +216,32 @@ def create_dottie(data: DottieIn, session: SessionDep) -> DottieOut:
 
 
 @router.get("/dotties/{dottie_id}")
-def get_dottie(dottie_id: int, session: SessionDep) -> DottieOut:
-    return present(session, [get_or_404(session, Dottie, dottie_id)])[0]
+def get_dottie(dottie_id: int, session: SessionDep, user: UserDep) -> DottieOut:
+    return present(session, [owned_dottie(session, user, dottie_id)])[0]
 
 
 @router.patch("/dotties/{dottie_id}")
-def update_dottie(dottie_id: int, data: DottiePatch, session: SessionDep) -> DottieOut:
-    dottie = get_or_404(session, Dottie, dottie_id)
+def update_dottie(dottie_id: int, data: DottiePatch, session: SessionDep, request: Request, user: UserDep) -> DottieOut:
+    dottie = owned_dottie(session, user, dottie_id)
+    _check_servers(request, data.mcp_servers or [])
     changes = data.model_dump(exclude_unset=True, exclude={"skill_ids", "mcp_servers"})
     for field, value in changes.items():
         setattr(dottie, field, value)
     if data.mcp_servers is not None:
         dottie.mcp_servers = [m.model_dump(mode="json") for m in data.mcp_servers]
     if data.skill_ids is not None:
-        dottie.skills = _skills(session, data.skill_ids)
+        dottie.skills = _skills(session, data.skill_ids, user.id)
     session.commit()
     return present(session, [dottie])[0]
 
 
 @router.delete("/dotties/{dottie_id}", status_code=204)
-def delete_dottie(dottie_id: int, session: SessionDep, request: Request) -> None:
-    dottie = get_or_404(session, Dottie, dottie_id)
+def delete_dottie(dottie_id: int, session: SessionDep, request: Request, user: UserDep) -> None:
+    dottie = owned_dottie(session, user, dottie_id)
     if dottie.sandbox_ref:  # its computer goes with it; its wiki and conversations are deleted by the database
-        with contextlib.suppress(Exception):  # a sandbox that is already gone must not keep the dottie alive
+        try:
             request.app.state.provider.destroy(dottie.sandbox_ref)
+        except Exception:  # a sandbox that is already gone must not keep the dottie alive, but say so
+            log.warning("could not delete the sandbox %s of dottie %s", dottie.sandbox_ref, dottie.id, exc_info=True)
     session.delete(dottie)
     session.commit()

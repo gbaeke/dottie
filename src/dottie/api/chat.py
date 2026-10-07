@@ -6,10 +6,12 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select, update
 
+from ..auth import UserDep
 from ..db import SessionDep
 from ..engine import bus, checkpoints
 from ..models import Conversation, Dottie, Message
-from .errors import ApiError, get_or_404
+from .access import owned_conversation, owned_dottie
+from .errors import ApiError
 from .util import build
 
 router = APIRouter(tags=["chat"])
@@ -73,8 +75,8 @@ def _messages_out(session, rows: list[Message]) -> list[MessageOut]:
 
 
 @router.get("/dotties/{dottie_id}/conversations")
-def list_conversations(dottie_id: int, session: SessionDep) -> list[ConversationOut]:
-    get_or_404(session, Dottie, dottie_id)
+def list_conversations(dottie_id: int, session: SessionDep, user: UserDep) -> list[ConversationOut]:
+    owned_dottie(session, user, dottie_id)
     conversations = session.scalars(
         select(Conversation).where(Conversation.dottie_id == dottie_id).order_by(Conversation.updated_at.desc())
     ).all()
@@ -107,8 +109,8 @@ def list_conversations(dottie_id: int, session: SessionDep) -> list[Conversation
 
 
 @router.post("/dotties/{dottie_id}/conversations", status_code=201)
-def create_conversation(dottie_id: int, data: ConversationIn, session: SessionDep) -> ConversationOut:
-    get_or_404(session, Dottie, dottie_id)
+def create_conversation(dottie_id: int, data: ConversationIn, session: SessionDep, user: UserDep) -> ConversationOut:
+    owned_dottie(session, user, dottie_id)
     c = bus.new_conversation(session, dottie_id, "chat", data.title)
     session.commit()
     return ConversationOut(
@@ -118,15 +120,15 @@ def create_conversation(dottie_id: int, data: ConversationIn, session: SessionDe
 
 
 @router.delete("/conversations/{conversation_id}", status_code=204)
-def delete_conversation(conversation_id: str, session: SessionDep, request: Request) -> None:
-    session.delete(get_or_404(session, Conversation, conversation_id))
+def delete_conversation(conversation_id: str, session: SessionDep, request: Request, user: UserDep) -> None:
+    session.delete(owned_conversation(session, user, conversation_id))
     session.commit()
     checkpoints.delete_thread(request.app.state.settings, conversation_id)
 
 
 @router.get("/conversations/{conversation_id}/messages")
-def list_messages(conversation_id: str, session: SessionDep, after: int = 0) -> list[MessageOut]:
-    get_or_404(session, Conversation, conversation_id)
+def list_messages(conversation_id: str, session: SessionDep, user: UserDep, after: int = 0) -> list[MessageOut]:
+    owned_conversation(session, user, conversation_id)
     rows = session.scalars(
         select(Message).where(Message.conversation_id == conversation_id, Message.id > after).order_by(Message.id)
     ).all()
@@ -134,8 +136,10 @@ def list_messages(conversation_id: str, session: SessionDep, after: int = 0) -> 
 
 
 @router.post("/conversations/{conversation_id}/messages", status_code=201)
-def send_message(conversation_id: str, data: MessageIn, session: SessionDep, request: Request) -> MessageOut:
-    conversation = get_or_404(session, Conversation, conversation_id)
+def send_message(
+    conversation_id: str, data: MessageIn, session: SessionDep, request: Request, user: UserDep
+) -> MessageOut:
+    conversation = owned_conversation(session, user, conversation_id)
     if conversation.kind == "dottie":
         raise ApiError("not_allowed", "That is a conversation between dotties; start a chat to talk to them.", 409)
     message = bus.post(
@@ -149,7 +153,8 @@ def send_message(conversation_id: str, data: MessageIn, session: SessionDep, req
 
 
 @router.post("/conversations/{conversation_id}/read", status_code=204)
-def mark_read(conversation_id: str, session: SessionDep) -> None:
+def mark_read(conversation_id: str, session: SessionDep, user: UserDep) -> None:
+    owned_conversation(session, user, conversation_id)
     session.execute(
         update(Message)
         .where(Message.conversation_id == conversation_id, Message.recipient_id.is_(None), Message.read_at.is_(None))
@@ -159,13 +164,17 @@ def mark_read(conversation_id: str, session: SessionDep) -> None:
 
 
 @router.get("/inbox")
-def inbox(session: SessionDep, limit: int = 50) -> list[InboxItem]:
+def inbox(session: SessionDep, user: UserDep, limit: int = 50) -> list[InboxItem]:
     """What dotties have written to the user, newest first: replies, finished scheduled tasks, anything volunteered."""
     rows = session.execute(
         select(Message, Dottie, Conversation)
         .join(Dottie, Dottie.id == Message.sender_id)
         .join(Conversation, Conversation.id == Message.conversation_id)
-        .where(Message.recipient_id.is_(None), Message.sender_kind.in_(["dottie", "system"]))
+        .where(
+            Message.recipient_id.is_(None),
+            Message.sender_kind.in_(["dottie", "system"]),
+            Dottie.owner_id == user.id,
+        )
         .order_by(Message.id.desc())
         .limit(limit)
     ).all()
@@ -182,25 +191,28 @@ def inbox(session: SessionDep, limit: int = 50) -> list[InboxItem]:
 
 
 @router.post("/inbox/read", status_code=204)
-def read_inbox(session: SessionDep) -> None:
+def read_inbox(session: SessionDep, user: UserDep) -> None:
+    mine = select(Dottie.id).where(Dottie.owner_id == user.id)
     session.execute(
         update(Message)
-        .where(Message.recipient_id.is_(None), Message.read_at.is_(None))
+        .where(Message.recipient_id.is_(None), Message.read_at.is_(None), Message.sender_id.in_(mine))
         .values(read_at=datetime.now(UTC))
     )
     session.commit()
 
 
 @router.get("/bus")
-def traffic(session: SessionDep, limit: int = 40) -> list[BusItem]:
+def traffic(session: SessionDep, user: UserDep, limit: int = 40) -> list[BusItem]:
     """Messages between dotties, newest first (each shown once: as the recipient received it)."""
     rows = session.execute(
         select(Message)
         .join(Conversation, Conversation.id == Message.conversation_id)
+        .join(Dottie, Dottie.id == Message.recipient_id)
         .where(
             Message.sender_kind == "dottie",
             Message.recipient_id.is_not(None),
             Conversation.dottie_id == Message.recipient_id,
+            Dottie.owner_id == user.id,
         )
         .order_by(Message.id.desc())
         .limit(limit)

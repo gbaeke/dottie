@@ -79,3 +79,9 @@ uv add PKG / uv add --dev PKG     # never pip; never edit uv.lock by hand
 - In `AGENT_MODE=sandbox` the sandbox gets a run token and nothing else. Do not hand it database or model credentials:
   add an `/internal` endpoint instead. `/internal` is excluded from OpenAPI (and so from the generated client).
 - Routes: include the API router before `_serve_frontend`, whose catch-all would otherwise answer `/api/...`.
+- Multi-user: every route that takes an id looks the thing up through `api/access.py` (`owned_dottie`, `owned_conversation`,
+  `owned_schedule`) and every list filters by `user.id` (`UserDep`). A new endpoint without that is a data leak: add it to
+  `tests/test_multi_user.py`. `404`, never `403`, for someone else's. With sign-in off everything belongs to the user `local`.
+- `PUBLIC_URL` is the address people use (sign-in callbacks); `GATEWAY_URL` is how a sandbox reaches the callback API.
+  The gateway app (`SERVE=internal`) has no sign-in middleware on purpose.
+- MCP has its own gate (`McpAccess`, personal access tokens), and `/mcp` is exempt from the browser login for that reason.

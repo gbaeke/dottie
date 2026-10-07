@@ -11,6 +11,7 @@ import { ThemeProvider } from '@/lib/theme'
 import { Inbox } from '@/pages/Inbox'
 import { NewDottie } from '@/pages/NewDottie'
 import { NotFound } from '@/pages/NotFound'
+import { Connect } from '@/pages/Connect'
 import { Overview } from '@/pages/Overview'
 import { Scheduled } from '@/pages/Scheduled'
 import { Skills } from '@/pages/Skills'
@@ -35,6 +36,7 @@ createRoot(document.getElementById('root')!).render(
               <Route path="inbox" element={<Inbox />} />
               <Route path="scheduled" element={<Scheduled />} />
               <Route path="skills" element={<Skills />} />
+              <Route path="connect" element={<Connect />} />
               <Route path="dotties/new" element={<NewDottie />} />
               <Route path="dotties/:id" element={<DottieLayout />}>
                 <Route index element={<Chat />} />

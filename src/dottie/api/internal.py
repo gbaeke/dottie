@@ -65,7 +65,7 @@ async def run_tools(request: Request, run: RunInfo) -> dict[str, BaseTool]:
             depth = max((m.depth for m in s.scalars(select(Message).where(Message.run_id == run.run_id))), default=0)
         ctx = RunContext(sessions, run.dottie_id, run.run_id, depth, request.app.state.settings.max_message_depth)
         tools: list[BaseTool] = [StructuredTool.from_function(f) for f in build_tools(ctx, toolkits)]
-        tools += await load_mcp_tools(servers)
+        tools += await load_mcp_tools(servers, public_only=request.app.state.settings.auth_enabled)
         if len(cache) > 200:  # runs whose agent died without saying so
             cache.pop(next(iter(cache)))
         cache[run.run_id] = {t.name: t for t in tools}
