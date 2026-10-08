@@ -32,7 +32,8 @@ SESSION_COOKIE = "wos_session"
 SESSION_MAX_AGE_S = 30 * 24 * 3600  # the cookie's own limit; WorkOS's session length decides sooner
 STATE_COOKIE = "auth_state"
 STATE_MAX_AGE_S = 600
-PUBLIC_PATHS = ("/auth/", "/api/health", "/internal/", "/mcp")  # sign-in, health probe, sandboxes and MCP (own tokens)
+# sign-in, health probe, sandboxes, MCP and the Telegram webhook (each answers to its own token or secret)
+PUBLIC_PATHS = ("/auth/", "/api/health", "/internal/", "/mcp", "/telegram/webhook")
 
 
 class User(BaseModel):

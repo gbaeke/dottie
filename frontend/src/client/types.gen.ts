@@ -723,6 +723,52 @@ export type SystemOut = {
 };
 
 /**
+ * TelegramChat
+ */
+export type TelegramChat = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Dottie Name
+     */
+    dottie_name: string | null;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * TelegramCode
+ */
+export type TelegramCode = {
+    /**
+     * Code
+     */
+    code: string;
+    /**
+     * Link
+     */
+    link: string;
+};
+
+/**
+ * TelegramStatus
+ */
+export type TelegramStatus = {
+    /**
+     * Enabled
+     */
+    enabled: boolean;
+    /**
+     * Chats
+     */
+    chats: Array<TelegramChat>;
+};
+
+/**
  * TemplateOut
  */
 export type TemplateOut = {
@@ -2084,3 +2130,65 @@ export type TestServerResponses = {
 };
 
 export type TestServerResponse = TestServerResponses[keyof TestServerResponses];
+
+export type TelegramStatusData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/telegram';
+};
+
+export type TelegramStatusResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelegramStatus;
+};
+
+export type TelegramStatusResponse = TelegramStatusResponses[keyof TelegramStatusResponses];
+
+export type MakeCodeData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/telegram/codes';
+};
+
+export type MakeCodeResponses = {
+    /**
+     * Successful Response
+     */
+    201: TelegramCode;
+};
+
+export type MakeCodeResponse = MakeCodeResponses[keyof MakeCodeResponses];
+
+export type UnlinkChatData = {
+    body?: never;
+    path: {
+        /**
+         * Link Id
+         */
+        link_id: number;
+    };
+    query?: never;
+    url: '/api/telegram/chats/{link_id}';
+};
+
+export type UnlinkChatErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UnlinkChatError = UnlinkChatErrors[keyof UnlinkChatErrors];
+
+export type UnlinkChatResponses = {
+    /**
+     * Successful Response
+     */
+    204: void;
+};
+
+export type UnlinkChatResponse = UnlinkChatResponses[keyof UnlinkChatResponses];

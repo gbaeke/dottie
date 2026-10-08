@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # --- Secrets: what a user keeps for their dotties (API keys for MCP servers), encrypted in the database ---
     secrets_key: SecretStr = SecretStr("")  # any long random string; changing it makes stored secrets unreadable
 
+    # --- Telegram: one bot for everyone; people link their chat in the app and pick which dottie they talk to ---
+    telegram_bot_token: SecretStr = SecretStr("")  # from @BotFather; empty: Telegram is off
+    telegram_webhook_url: str = ""  # the public address Telegram calls; empty: PUBLIC_URL (locally: a tunnel's address)
+
     # --- The engine: the dispatcher that wakes dotties and the scheduler that fires their schedules ---
     engine_enabled: bool = True  # tests turn it off and drive the dispatcher by hand
     poll_seconds: float = 0.5  # how often the dispatcher looks for pending messages and due schedules
@@ -63,6 +67,10 @@ class Settings(BaseSettings):
     def user_allowed(self, email: str) -> bool:
         allowed = {e.strip().lower() for e in self.allowed_users.split(",") if e.strip()}
         return not allowed or email.lower() in allowed
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(self.telegram_bot_token.get_secret_value())
 
     @property
     def callback_url(self) -> str:
