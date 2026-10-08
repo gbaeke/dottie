@@ -139,6 +139,8 @@ class Conversation(Base):
     kind: Mapped[str] = mapped_column(String(10))  # chat | schedule | dottie
     title: Mapped[str] = mapped_column(String(200), default="")
     peer_id: Mapped[int | None] = mapped_column(ForeignKey("dotties.id", ondelete="CASCADE"), default=None)
+    # dottie threads: the conversation with the user that last asked this dottie to delegate, where answers go back to
+    origin_id: Mapped[str | None] = mapped_column(ForeignKey("conversations.id", ondelete="SET NULL"), default=None)
     created_at: Mapped[datetime] = _now()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
