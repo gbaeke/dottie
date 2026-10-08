@@ -181,3 +181,27 @@ def test_a_dottie_woken_by_another_can_tell_the_user(client, scripts):
         ("Ada", "Rex says the title is Example Domain.")
     ]
     assert ada["id"] != rex["id"]
+
+
+def test_a_delegated_answer_goes_back_to_the_conversation_that_asked(client, scripts):
+    ada = make(client, name="Ada")
+    make(client, name="Rex")
+    scripts["ada"] = [
+        use(call("send_message", to="rex", message="Title of example.com?")),
+        say("Asked Rex."),
+        use(call("tell_user", message="Rex says: Example Domain.")),
+        say("Passed it on."),
+        say("Ok."),
+    ]
+    scripts["rex"] = [use(call("send_message", to="ada", message="Example Domain.")), say("Sent.")]
+    asked = chat(client, ada["id"], "Ask Rex for the title of example.com.")
+    for _ in range(2):
+        wake_everyone(client)  # Ada asks, Rex answers: Ada has the answer waiting in her thread with Rex
+    newer = chat(client, ada["id"], "Unrelated chat.")  # a later conversation must not receive the answer
+    wake_everyone(client)
+
+    def bodies(c: str) -> list[str]:
+        return [m["body"] for m in client.get(f"/api/conversations/{c}/messages").json()]
+
+    assert "Rex says: Example Domain." in bodies(asked)
+    assert "Rex says: Example Domain." not in bodies(newer)

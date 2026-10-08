@@ -18,7 +18,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..models import Conversation, Dottie, Event, Schedule
+from ..models import Conversation, Dottie, Event, Run, Schedule
 from . import bus, scheduler
 
 TOOLKITS: dict[str, str] = {
@@ -52,6 +52,11 @@ def record(sessions: sessionmaker[Session], dottie_id: int, run_id: int | None, 
         s.commit()
 
 
+def _run_conversation(s: Session, ctx: RunContext) -> Conversation | None:
+    run = s.get(Run, ctx.run_id)
+    return s.get(Conversation, run.conversation_id) if run and run.conversation_id else None
+
+
 def messaging(ctx: RunContext) -> list[Callable[..., str]]:
     def list_dotties() -> str:
         """List the other dotties you can write to, with what each one is for."""
@@ -81,6 +86,10 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
             if recipient.id == sender.id:
                 return "That is you. Write it in your wiki instead."
             bus.send_between(s, sender, recipient, message, depth=ctx.depth + 1)
+            here = _run_conversation(s, ctx)
+            if here is not None and here.kind != "dottie":
+                # the reply will wake this dottie in its thread with the other one: remember where to pass it on
+                bus.peer_conversation(s, sender, recipient).origin_id = here.id
             s.commit()
             name = recipient.name
         ctx.sends += 1
@@ -89,12 +98,15 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
 
     def tell_user(message: str) -> str:
         """Write to the person you work for outside of a normal answer: to pass on what another dottie sent you, or
-        to report a result when no one is waiting for an answer. It appears in their inbox, in your latest
-        conversation with them. (When they wrote to you or a schedule woke you, your answer already goes to them: do
-        not repeat it.)"""
+        to report a result when no one is waiting for an answer. It appears in their inbox, in the conversation
+        where you delegated the task (when another dottie's reply woke you), else in your latest one.
+        (When they wrote to you or a schedule woke you, your answer already goes to them: do not repeat it.)"""
         with ctx.sessions() as s:
+            here = _run_conversation(s, ctx)
+            origin = here.origin_id if here and here.kind == "dottie" else None
+            conversation = s.get(Conversation, origin) if origin else None
             latest = select(Conversation).where(Conversation.dottie_id == ctx.dottie_id, Conversation.kind == "chat")
-            conversation = s.scalar(latest.order_by(Conversation.updated_at.desc()).limit(1))
+            conversation = conversation or s.scalar(latest.order_by(Conversation.updated_at.desc()).limit(1))
             conversation = conversation or bus.new_conversation(s, ctx.dottie_id, "chat", "Updates")
             bus.post(s, conversation, sender_kind="dottie", sender_id=ctx.dottie_id, recipient_id=None, body=message)
             s.commit()
