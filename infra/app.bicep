@@ -48,6 +48,10 @@ param allowedUsers string = ''
 @description('Encrypts the secrets users store (SECRETS_KEY). Both apps need it: the gateway runs the tools in sandbox mode.')
 param secretsKey string = ''
 
+@secure()
+@description('The Telegram bot\'s token (TELEGRAM_BOT_TOKEN), from @BotFather. Empty: no Telegram. Only the app uses it.')
+param telegramBotToken string = ''
+
 @description('Most dotties one user may have.')
 param maxDottiesPerUser int = 20
 
@@ -98,9 +102,13 @@ var workosEnv = withWorkos
       empty(allowedUsers) ? [] : [{ name: 'ALLOWED_USERS', value: allowedUsers }]
     )
   : []
+// the bot lives in the app (its webhook and the engine that sends the answers), never in the gateway; the webhook
+// address is PUBLIC_URL, which is why Telegram goes with sign-in
+var withTelegram = withWorkos && !empty(telegramBotToken)
 var secrets = concat(
   withWorkos ? [{ name: 'workos-api-key', value: workosApiKey }, { name: 'session-secret', value: sessionSecret }] : [],
-  empty(secretsKey) ? [] : [{ name: 'secrets-key', value: secretsKey }]
+  empty(secretsKey) ? [] : [{ name: 'secrets-key', value: secretsKey }],
+  withTelegram ? [{ name: 'telegram-bot-token', value: telegramBotToken }] : []
 )
 var appEnv = concat(
   [{ name: 'LOG_JSON', value: 'true' }],
@@ -124,7 +132,8 @@ var appEnv = concat(
   ],
   empty(gatewayUrl) ? [] : [{ name: 'GATEWAY_URL', value: gatewayUrl }],
   workosEnv,
-  empty(secretsKey) ? [] : [{ name: 'SECRETS_KEY', secretRef: 'secrets-key' }]
+  empty(secretsKey) ? [] : [{ name: 'SECRETS_KEY', secretRef: 'secrets-key' }],
+  withTelegram ? [{ name: 'TELEGRAM_BOT_TOKEN', secretRef: 'telegram-bot-token' }] : []
 )
 
 resource app 'Microsoft.App/containerApps@2025-01-01' = {

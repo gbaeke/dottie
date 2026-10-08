@@ -6,6 +6,7 @@
 #   AGENT_MODE=app scripts/azure-deploy.sh               # the agent loop in the app (default: sandbox)
 #   WORKOS_CLIENT_ID=client_... WORKOS_API_KEY=sk_... [ALLOWED_USERS=a@x,b@y] scripts/azure-deploy.sh   # sign-in on
 #   WORKOS_CLIENT_ID= scripts/azure-deploy.sh            # sign-in off again
+#   TELEGRAM_BOT_TOKEN=123:abc... scripts/azure-deploy.sh   # a Telegram bot (needs sign-in); empty: off again
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # shellcheck source=scripts/azure-lib.sh
@@ -46,7 +47,7 @@ FQDN=$(az deployment group create -g "$RG" -n app -f infra/app.bicep \
   -p location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" ipRules="$(ip_rules_json)" agentMode="${AGENT_MODE:-sandbox}" \
   gatewayUrl="https://$GATE" \
   workosClientId="${WORKOS_CLIENT_ID:-}" workosApiKey="${WORKOS_API_KEY:-}" sessionSecret="${SESSION_SECRET:-}" \
-  allowedUsers="${ALLOWED_USERS:-}" secretsKey="$SECRETS_KEY" --query properties.outputs.fqdn.value -o tsv)
+  allowedUsers="${ALLOWED_USERS:-}" secretsKey="$SECRETS_KEY" telegramBotToken="${TELEGRAM_BOT_TOKEN:-}" --query properties.outputs.fqdn.value -o tsv)
 
 if [ -n "${WORKOS_CLIENT_ID:-}" ]; then  # the app's address is where WorkOS may send people back to after sign-in
   scripts/workos-uris.sh add "https://$FQDN" ||
