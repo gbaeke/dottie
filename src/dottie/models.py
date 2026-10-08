@@ -166,6 +166,25 @@ class Message(Base):
     created_at: Mapped[datetime] = _now()
 
 
+class TelegramLink(Base):
+    """A Telegram chat that talks to a user's dotties. It starts as a pending code (made in the app, sent to the bot as
+    `/start <code>`), which is what proves the chat belongs to that user. `conversation_id` is where the chat's messages
+    go: the one with the dottie the user picked. `sent_up_to` is the last message id already delivered to the chat."""
+
+    __tablename__ = "telegram_links"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(64), index=True)
+    code: Mapped[str | None] = mapped_column(String(40), unique=True, default=None)  # until the chat has used it
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, unique=True, default=None)
+    dottie_id: Mapped[int | None] = mapped_column(ForeignKey("dotties.id", ondelete="SET NULL"), default=None)
+    conversation_id: Mapped[str | None] = mapped_column(
+        ForeignKey("conversations.id", ondelete="SET NULL"), default=None
+    )
+    sent_up_to: Mapped[int] = mapped_column(BigInteger, default=0, server_default="0")
+    created_at: Mapped[datetime] = _now()
+
+
 class Schedule(Base):
     """Something to do later or repeatedly. The scheduler turns each firing into a message that wakes the dottie."""
 

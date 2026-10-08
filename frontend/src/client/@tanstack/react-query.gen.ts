@@ -3,8 +3,8 @@
 import { type DefaultError, type InfiniteData, infiniteQueryOptions, queryOptions, type UseMutationOptions } from '@tanstack/react-query';
 
 import { client } from '../client.gen';
-import { createConversation, createDottie, createSchedule, createSkill, createToken, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSecret, deleteSkill, deleteToken, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSecrets, listSkills, listTemplates, listTokens, listToolkits, markRead, me, type Options, readInbox, readPage, runNow, sendMessage, setSecret, stream, system, testServer, traffic, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
-import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, CreateTokenData, CreateTokenError, CreateTokenResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSecretData, DeleteSecretError, DeleteSecretResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteTokenData, DeleteTokenError, DeleteTokenResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSecretsData, ListSecretsResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListTokensData, ListTokensResponse, ListToolkitsData, ListToolkitsResponse, MarkReadData, MarkReadError, MarkReadResponse, MeData, MeResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, SetSecretData, SetSecretError, SetSecretResponse, StreamData, SystemData, SystemResponse, TestServerData, TestServerError, TestServerResponse, TrafficData, TrafficError, TrafficResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
+import { createConversation, createDottie, createSchedule, createSkill, createToken, deleteConversation, deleteDottie, deletePage, deleteSchedule, deleteSecret, deleteSkill, deleteToken, getDottie, health, inbox, listAll, listConversations, listDottieEvents, listDotties, listEvents, listMessages, listPages, listRuns, listSchedules, listSecrets, listSkills, listTemplates, listTokens, listToolkits, makeCode, markRead, me, type Options, readInbox, readPage, runNow, sendMessage, setSecret, stream, system, telegramStatus, testServer, traffic, unlinkChat, updateDottie, updateSchedule, updateSkill, writePage } from '../sdk.gen';
+import type { CreateConversationData, CreateConversationError, CreateConversationResponse, CreateDottieData, CreateDottieError, CreateDottieResponse, CreateScheduleData, CreateScheduleError, CreateScheduleResponse, CreateSkillData, CreateSkillError, CreateSkillResponse, CreateTokenData, CreateTokenError, CreateTokenResponse, DeleteConversationData, DeleteConversationError, DeleteConversationResponse, DeleteDottieData, DeleteDottieError, DeleteDottieResponse, DeletePageData, DeletePageError, DeletePageResponse, DeleteScheduleData, DeleteScheduleError, DeleteScheduleResponse, DeleteSecretData, DeleteSecretError, DeleteSecretResponse, DeleteSkillData, DeleteSkillError, DeleteSkillResponse, DeleteTokenData, DeleteTokenError, DeleteTokenResponse, GetDottieData, GetDottieError, GetDottieResponse, HealthData, HealthResponse, InboxData, InboxError, InboxResponse, ListAllData, ListAllResponse, ListConversationsData, ListConversationsError, ListConversationsResponse, ListDottieEventsData, ListDottieEventsError, ListDottieEventsResponse, ListDottiesData, ListDottiesResponse, ListEventsData, ListEventsError, ListEventsResponse, ListMessagesData, ListMessagesError, ListMessagesResponse, ListPagesData, ListPagesError, ListPagesResponse, ListRunsData, ListRunsError, ListRunsResponse, ListSchedulesData, ListSchedulesError, ListSchedulesResponse, ListSecretsData, ListSecretsResponse, ListSkillsData, ListSkillsResponse, ListTemplatesData, ListTemplatesResponse, ListTokensData, ListTokensResponse, ListToolkitsData, ListToolkitsResponse, MakeCodeData, MakeCodeResponse, MarkReadData, MarkReadError, MarkReadResponse, MeData, MeResponse, ReadInboxData, ReadInboxResponse, ReadPageData, ReadPageError, ReadPageResponse, RunNowData, RunNowError, RunNowResponse, SendMessageData, SendMessageError, SendMessageResponse, SetSecretData, SetSecretError, SetSecretResponse, StreamData, SystemData, SystemResponse, TelegramStatusData, TelegramStatusResponse, TestServerData, TestServerError, TestServerResponse, TrafficData, TrafficError, TrafficResponse, UnlinkChatData, UnlinkChatError, UnlinkChatResponse, UpdateDottieData, UpdateDottieError, UpdateDottieResponse, UpdateScheduleData, UpdateScheduleError, UpdateScheduleResponse, UpdateSkillData, UpdateSkillError, UpdateSkillResponse, WritePageData, WritePageError, WritePageResponse } from '../types.gen';
 
 export type QueryKey<TOptions extends Options> = [
     Pick<TOptions, 'baseUrl' | 'body' | 'headers' | 'path' | 'query'> & {
@@ -937,6 +937,58 @@ export const testServerMutation = (options?: Partial<Options<TestServerData>>): 
     const mutationOptions: UseMutationOptions<TestServerResponse, TestServerError, Options<TestServerData>> = {
         mutationFn: async (fnOptions) => {
             const { data } = await testServer({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+export const telegramStatusQueryKey = (options?: Options<TelegramStatusData>) => createQueryKey('telegramStatus', options);
+
+/**
+ * Telegram Status
+ */
+export const telegramStatusOptions = (options?: Options<TelegramStatusData>) => queryOptions<TelegramStatusResponse, DefaultError, TelegramStatusResponse, ReturnType<typeof telegramStatusQueryKey>>({
+    queryFn: async ({ queryKey, signal }) => {
+        const { data } = await telegramStatus({
+            ...options,
+            ...queryKey[0],
+            signal,
+            throwOnError: true
+        });
+        return data;
+    },
+    queryKey: telegramStatusQueryKey(options)
+});
+
+/**
+ * Make Code
+ */
+export const makeCodeMutation = (options?: Partial<Options<MakeCodeData>>): UseMutationOptions<MakeCodeResponse, DefaultError, Options<MakeCodeData>> => {
+    const mutationOptions: UseMutationOptions<MakeCodeResponse, DefaultError, Options<MakeCodeData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await makeCode({
+                ...options,
+                ...fnOptions,
+                throwOnError: true
+            });
+            return data;
+        }
+    };
+    return mutationOptions;
+};
+
+/**
+ * Unlink Chat
+ */
+export const unlinkChatMutation = (options?: Partial<Options<UnlinkChatData>>): UseMutationOptions<UnlinkChatResponse, UnlinkChatError, Options<UnlinkChatData>> => {
+    const mutationOptions: UseMutationOptions<UnlinkChatResponse, UnlinkChatError, Options<UnlinkChatData>> = {
+        mutationFn: async (fnOptions) => {
+            const { data } = await unlinkChat({
                 ...options,
                 ...fnOptions,
                 throwOnError: true

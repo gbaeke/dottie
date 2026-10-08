@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..config import Settings
 from ..models import Dottie, Run
-from . import bus, scheduler
+from . import bus, scheduler, telegram
 from .runner import Runner
 from .tools import record
 
@@ -28,8 +28,17 @@ RECONCILE_EVERY = 30.0  # seconds between checks that the sandboxes we think are
 
 
 class Engine:
-    def __init__(self, settings: Settings, db: SqlEngine, sessions: sessionmaker[Session], runner: Runner):
+    def __init__(
+        self,
+        settings: Settings,
+        db: SqlEngine,
+        sessions: sessionmaker[Session],
+        runner: Runner,
+        telegram_api: telegram.TelegramApi | None = None,
+    ):
         self.settings, self.db, self.sessions, self.runner = settings, db, sessions, runner
+        self.telegram = telegram_api
+        self._delivering: Future[int] | None = None  # sending to Telegram is slow: never on the dispatcher's thread
         self.pool = ThreadPoolExecutor(settings.max_workers, thread_name_prefix="dottie")
         self.active: dict[int, Future[int]] = {}
         self._lock = threading.Lock()
@@ -102,7 +111,10 @@ class Engine:
     # --- one pass ---
 
     def tick(self) -> list[int]:
-        """Fire due schedules, then wake every dottie that has mail and is not already awake. Returns who was woken."""
+        """Fire due schedules, send dotties' answers to Telegram, then wake every dottie that has mail and is not
+        already awake. Returns who was woken."""
+        if self.telegram is not None and (self._delivering is None or self._delivering.done()):
+            self._delivering = self.pool.submit(telegram.deliver, self.sessions, self.telegram)
         with self.sessions() as s:
             if scheduler.fire_due(s):
                 s.commit()
@@ -188,6 +200,6 @@ class Engine:
     def wait_idle(self, timeout: float = 30) -> None:
         """Block until every dottie that is awake has finished (tests)."""
         with self._lock:
-            futures = list(self.active.values())
+            futures = [*self.active.values(), *([self._delivering] if self._delivering else [])]
         for f in futures:
             f.result(timeout)

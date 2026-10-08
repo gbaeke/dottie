@@ -10,6 +10,7 @@ import {
   listTokensQueryKey,
 } from '@/client/@tanstack/react-query.gen'
 import { Secrets } from '@/components/Secrets'
+import { Telegram } from '@/components/Telegram'
 import { EmptyState, ListSkeleton, Page, PageTitle, Spinner } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import { absoluteTime, relativeTime } from '@/lib/format'
@@ -79,6 +80,7 @@ export function Connect() {
     <Page>
       <PageTitle title="Connect" sub="Secrets for your dotties' tools, and access to your dotties from other tools." />
       <Secrets />
+      <Telegram />
       <h2 className="mb-1 font-medium">Use your dotties from other tools</h2>
       <p className="mb-4 text-sm text-fg-muted">
         Your dotties answer on <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">{url}</code>. A tool

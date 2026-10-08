@@ -141,6 +141,15 @@ answer, and returns a conversation id when the dottie is still working) and `rea
 The other direction works too: attach any MCP server to a dottie in its settings and its tools join the dottie's own.
 For example `https://learn.microsoft.com/api/mcp` gives it Microsoft Learn search.
 
+## Talk to dotties on Telegram
+
+One bot serves everyone. Make it with @BotFather and set `TELEGRAM_BOT_TOKEN`. Telegram calls
+`<address>/telegram/webhook`, which the app registers at startup; the address is `PUBLIC_URL`, or `TELEGRAM_WEBHOOK_URL`
+when that is not public (locally: a tunnel, e.g. `cloudflared tunnel --url http://localhost:8370`). In the app, **Connect → Telegram**
+gives a one-time link that ties your chat to you. In the chat, `/dottie` picks which of your dotties you talk to, `/new`
+starts a fresh conversation, and anything else goes to the chosen dottie. Its answers (and `tell_user` messages sent in
+that conversation) come back to the chat.
+
 ## Run it
 
 Needs [uv](https://docs.astral.sh/uv/), Node.js 24+ and Docker (for PostgreSQL and the dotties' sandboxes).

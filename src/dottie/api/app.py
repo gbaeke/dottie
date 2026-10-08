@@ -18,10 +18,12 @@ from ..engine.mcp import looks_secret
 from ..engine.runner import Runner
 from ..engine.sandboxes import SandboxProvider, make_provider
 from ..engine.secrets import SecretCipher, SecretStore, repair_inline_credentials
+from ..engine.telegram import TelegramApi, register_webhook
 from ..mcp_server import McpAccess, build_mcp
 from ..middleware import RequestContext
 from . import activity, chat, dotties, internal, schedules, secrets, skills, system, tokens, wiki
 from . import mcp as mcp_api
+from . import telegram as telegram_api
 from .errors import ApiError, install_handlers
 
 ROOT = Path(__file__).resolve().parents[3]  # the repository (or /app in the image): alembic.ini, frontend/dist
@@ -32,9 +34,11 @@ def create_app(
     model_factory: ModelFactory = build_model,
     provider: SandboxProvider | None = None,
     workos: auth.WorkOSAuth | None = None,
+    telegram: TelegramApi | None = None,
 ) -> FastAPI:
-    """`model_factory` and `provider` are what tests replace: a scripted model, no sandbox."""
+    """`model_factory`, `provider` and `telegram` are what tests replace: a scripted model, no sandbox, no Telegram."""
     settings = settings or get_settings()
+    telegram = telegram or TelegramApi.from_settings(settings)
 
     mcp = build_mcp(lambda: app.state.session_factory)
     mcp_app = mcp.streamable_http_app()  # creates mcp.session_manager, which the lifespan runs
@@ -59,10 +63,12 @@ def create_app(
         if cipher:  # credentials saved inside MCP server URLs before secrets existed move into the store
             repair_inline_credentials(sessions, app.state.secret_store, looks_secret)
         runner = Runner(settings, sessions, app.state.provider, model_factory, app.state.secret_store)
-        engine = Engine(settings, db, sessions, runner)
+        app.state.telegram = telegram
+        engine = Engine(settings, db, sessions, runner, telegram)
         app.state.engine = engine
         if settings.engine_enabled and settings.serve == "all":  # the gateway only answers sandboxes
             engine.start()
+            register_webhook(telegram, settings.telegram_webhook_url or settings.public_url)
         try:
             async with mcp.session_manager.run() if settings.serve == "all" else nullcontext():
                 yield
@@ -99,8 +105,10 @@ def create_app(
         api.include_router(auth.me_router)
         for module in (dotties, chat, wiki, schedules, skills, activity, system, tokens, secrets, mcp_api):
             api.include_router(module.router)
+        api.include_router(telegram_api.router)
     app.include_router(api)
     if settings.serve == "all":
+        app.include_router(telegram_api.webhook_router)
         app.mount(
             "/mcp", McpAccess(mcp_app, settings.auth_enabled, lambda: app.state.session_factory)
         )  # see mcp_server.py
