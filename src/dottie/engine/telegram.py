@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 CODE_VALID_FOR = timedelta(hours=1)
 MAX_LENGTH = 4096  # what Telegram accepts in one message
+NOTED = "noted"  # status of a message a dottie sent to the chat on its own: in the conversation, not to be sent again
 
 HELP = (
     "I connect you to your dotties.\n\n"
@@ -201,6 +202,17 @@ def _forward(s: Session, api: TelegramApi, link: TelegramLink, chat_id: int, tex
 # --- from the dotties to the chat ---
 
 
+def record_outgoing(s: Session, link: TelegramLink, dottie: Dottie, message: str) -> None:
+    """A dottie wrote to the chat on its own (send_telegram): put it in the chat's conversation, so it is there to read
+    and the person's reply continues from it (`runs.describe` hands it to the dottie). The chat then talks to this
+    dottie, whoever it talked to before: a reply is to the one that wrote."""
+    conversation = s.get(Conversation, link.conversation_id) if link.conversation_id else None
+    if link.dottie_id != dottie.id or conversation is None:
+        _start_conversation(s, link, dottie)
+        conversation = s.get_one(Conversation, link.conversation_id)
+    bus.post(s, conversation, sender_kind="dottie", sender_id=dottie.id, recipient_id=None, body=message, status=NOTED)
+
+
 def deliver(sessions: sessionmaker[Session], api: TelegramApi) -> int:
     """Send each linked chat what its dottie has written in the chat's conversation since last time. A failure stops
     that chat for now (the same messages are tried again on the next pass). Returns how many were sent."""
@@ -216,6 +228,7 @@ def deliver(sessions: sessionmaker[Session], api: TelegramApi) -> int:
                     Message.id > link.sent_up_to,
                     Message.recipient_id.is_(None),
                     Message.sender_kind.in_(["dottie", "system"]),
+                    Message.status != NOTED,  # what a dottie sent with send_telegram already went out
                 )
                 .order_by(Message.id)
             ).all()

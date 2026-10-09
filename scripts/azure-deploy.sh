@@ -39,7 +39,7 @@ docker push "$IMAGE"
 # the sandboxes have no fixed address). The app is the UI, API and the clock, and keeps its IP rules.
 echo "== Gateway (app.bicep, serve=internal)"
 GATE=$(az deployment group create -g "$RG" -n gate -f infra/app.bicep \
-  -p name=dottie-gate serve=internal agentMode="${AGENT_MODE:-sandbox}" secretsKey="$SECRETS_KEY" location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" \
+  -p name=dottie-gate serve=internal agentMode="${AGENT_MODE:-sandbox}" secretsKey="$SECRETS_KEY" telegramBotToken="${TELEGRAM_BOT_TOKEN:-}" location="${APP_LOCATION:-$LOCATION}" sandboxRegion="$LOCATION" image="$IMAGE" \
   --query properties.outputs.fqdn.value -o tsv)
 
 echo "== App (app.bicep)"

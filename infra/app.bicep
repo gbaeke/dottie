@@ -49,7 +49,7 @@ param allowedUsers string = ''
 param secretsKey string = ''
 
 @secure()
-@description('The Telegram bot\'s token (TELEGRAM_BOT_TOKEN), from @BotFather. Empty: no Telegram. Only the app uses it.')
+@description('The Telegram bot\'s token (TELEGRAM_BOT_TOKEN), from @BotFather. Empty: no Telegram. Both apps need it.')
 param telegramBotToken string = ''
 
 @description('Most dotties one user may have.')
@@ -102,9 +102,9 @@ var workosEnv = withWorkos
       empty(allowedUsers) ? [] : [{ name: 'ALLOWED_USERS', value: allowedUsers }]
     )
   : []
-// the bot lives in the app (its webhook and the engine that sends the answers), never in the gateway; the webhook
-// address is PUBLIC_URL, which is why Telegram goes with sign-in
-var withTelegram = withWorkos && !empty(telegramBotToken)
+// both apps need the bot: the app has its webhook and sends the answers, the gateway runs the tools (send_telegram)
+// of an agent in a sandbox. The webhook address is PUBLIC_URL, which the app has with sign-in.
+var withTelegram = !empty(telegramBotToken)
 var secrets = concat(
   withWorkos ? [{ name: 'workos-api-key', value: workosApiKey }, { name: 'session-secret', value: sessionSecret }] : [],
   empty(secretsKey) ? [] : [{ name: 'secrets-key', value: secretsKey }],
