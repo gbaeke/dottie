@@ -8,6 +8,7 @@ from langchain_core.messages import AIMessage
 
 from dottie.api.app import create_app
 from dottie.engine.telegram import TelegramApi
+from dottie.models import Run
 
 from .fakes import ScriptedModel
 from .test_multi_user import app, make, sign_in  # noqa: F401  (the fixture and the helpers for two signed-in users)
@@ -185,3 +186,88 @@ def test_chats_belong_to_a_user(app):  # noqa: F811
     assert ann.delete(f"/api/telegram/chats/{chat_id}").status_code == 204
     say(ann, "hello", chat=1)
     assert "not linked" in telegram.texts(1)[-1]
+
+
+def call_send_telegram(message: str) -> AIMessage:
+    return AIMessage("", tool_calls=[{"name": "send_telegram", "args": {"message": message}, "id": "t1"}])
+
+
+def test_a_schedule_can_send_to_telegram(tg, telegram, scripts):
+    from datetime import UTC, datetime, timedelta
+
+    from dottie.engine import scheduler
+
+    ada = make(tg, "Ada")
+    link(tg)
+    scripts["ada"] = [call_send_telegram("Good morning!"), AIMessage("Sent it.")]
+    soon = (datetime.now(UTC) + timedelta(seconds=1)).isoformat()
+    tg.post(
+        f"/api/dotties/{ada['id']}/schedules",
+        json={"title": "Morning", "prompt": "Send good morning to Telegram.", "run_at": soon},
+    )
+    with tg.app.state.session_factory() as s:
+        scheduler.fire_due(s, datetime.now(UTC) + timedelta(seconds=5))
+        s.commit()
+    tg.app.state.engine.tick()
+    tg.app.state.engine.wait_idle()
+    assert "Ada: Good morning!" in telegram.texts()  # the chat was not talking to Ada yet: it is told who writes
+
+
+def test_without_a_linked_chat_the_tool_says_so(tg, telegram, scripts):
+    ada = make(tg, "Ada")
+    scripts["ada"] = [call_send_telegram("Hello"), AIMessage("Could not.")]
+    conversation = tg.post(f"/api/dotties/{ada['id']}/conversations", json={}).json()
+    tg.post(f"/api/conversations/{conversation['id']}/messages", json={"body": "Tell me on Telegram."})
+    tg.app.state.engine.tick()
+    tg.app.state.engine.wait_idle()
+    feed = tg.get(f"/api/dotties/{ada['id']}/events").json()
+    assert any("no Telegram chat is linked" in e["text"] for e in feed)
+    assert telegram.texts() == []
+
+
+def test_the_tool_writes_only_to_the_chats_of_the_dottie_s_owner(app):  # noqa: F811
+    from dottie.engine.tools import RunContext, build_tools
+
+    telegram = FakeTelegram()
+    ann, bob = sign_in(app, "ann"), sign_in(app, "bob")
+    ada, bea = make(ann, "Ada"), make(bob, "Bea")
+    app.state.telegram = telegram
+    link(bob, 2)  # only Bob has a chat
+    sent = len(telegram.texts(2))
+
+    def send_as(dottie: dict, message: str) -> str:
+        with app.state.session_factory() as s:
+            run = Run(dottie_id=dottie["id"], trigger="user")
+            s.add(run)
+            s.commit()
+            run_id = run.id
+        ctx = RunContext(app.state.session_factory, dottie["id"], run_id, 0, 5, telegram)
+        return next(t for t in build_tools(ctx, ["messaging"]) if t.__name__ == "send_telegram")(message)
+
+    assert "no Telegram chat is linked" in send_as(ada, "for Ann")  # Ann has none: nothing goes to Bob's
+    assert len(telegram.texts(2)) == sent
+    assert send_as(bea, "for Bob") == "Sent on Telegram (1 chat)."
+    assert telegram.texts(2)[-1] == "Bea: for Bob"
+
+
+def test_a_message_the_dottie_sent_is_in_the_chat_and_a_reply_continues_from_it(tg, telegram, scripts):
+    from dottie.engine import runs
+    from dottie.models import Message
+
+    ada = make(tg, "Ada")
+    make(tg, "Bo")
+    link(tg)
+    say(tg, "/dottie bo")  # the chat talks to Bo...
+    scripts["ada"] = [call_send_telegram("Your report is ready."), AIMessage("Done.")]
+    conversation = tg.post(f"/api/dotties/{ada['id']}/conversations", json={}).json()
+    tg.post(f"/api/conversations/{conversation['id']}/messages", json={"body": "Send me the report news."})
+    deliver(tg)
+    assert telegram.texts()[-1] == "Ada: Your report is ready."  # ...so it is told Ada wrote
+    deliver(tg)
+    assert telegram.texts().count("Ada: Your report is ready.") == 1 and "Your report is ready." not in telegram.texts()
+    say(tg, "Thanks, and the totals?")  # the chat now talks to Ada, who knows what it just said
+    with tg.app.state.session_factory() as s:
+        reply = s.query(Message).filter(Message.body == "Thanks, and the totals?").one()
+        assert reply.recipient_id == ada["id"]
+        text, _, _ = runs.describe(s, [reply])
+    assert text == "[You wrote to them on Telegram: Your report is ready.]\n\nThanks, and the totals?"

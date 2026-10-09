@@ -64,7 +64,9 @@ async def run_tools(request: Request, run: RunInfo) -> dict[str, BaseTool]:
             toolkits, servers = [t for t in dottie.tools if t != "shell"], list(dottie.mcp_servers)
             owner_id = dottie.owner_id
             depth = max((m.depth for m in s.scalars(select(Message).where(Message.run_id == run.run_id))), default=0)
-        ctx = RunContext(sessions, run.dottie_id, run.run_id, depth, request.app.state.settings.max_message_depth)
+        settings = request.app.state.settings
+        telegram = request.app.state.telegram
+        ctx = RunContext(sessions, run.dottie_id, run.run_id, depth, settings.max_message_depth, telegram)
         tools: list[BaseTool] = [StructuredTool.from_function(f) for f in build_tools(ctx, toolkits)]
         mcp_tools, problems = await load_mcp_tools(
             servers,

@@ -18,11 +18,12 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..models import Conversation, Dottie, Event, Run, Schedule
+from ..models import Conversation, Dottie, Event, Run, Schedule, TelegramLink
 from . import bus, scheduler
+from .telegram import TelegramApi, record_outgoing
 
 TOOLKITS: dict[str, str] = {
-    "messaging": "Write to other dotties and the user",
+    "messaging": "Write to other dotties and the user (and on Telegram, when it is set up)",
     "schedule": "Set its own reminders and recurring tasks",
     "web": "Read web pages",
     "shell": "A computer of its own: shell commands and working files",
@@ -41,6 +42,7 @@ class RunContext:
     run_id: int
     depth: int  # of the message that woke the dottie
     max_depth: int
+    telegram: TelegramApi | None = None  # None: this installation has no Telegram bot
     sends: int = 0
     notes: list[str] = field(default_factory=list)
 
@@ -113,7 +115,46 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
         record(ctx.sessions, ctx.dottie_id, ctx.run_id, "sent", f"To you: {message}", to="user")
         return "Delivered to the user's inbox."
 
-    return [list_dotties, send_message, tell_user]
+    tools = [list_dotties, send_message, tell_user]
+    if ctx.telegram is not None:
+        tools.append(_send_telegram(ctx, ctx.telegram))
+    return tools
+
+
+def _send_telegram(ctx: RunContext, api: TelegramApi) -> Callable[..., str]:
+    def send_telegram(message: str) -> str:
+        """Send a message to the person you work for on Telegram (every chat they linked). Use it when they ask for
+        something to be sent to Telegram, also in the task of a schedule. It is plain text, sent as written."""
+        if ctx.sends >= MAX_SENDS_PER_RUN:
+            return f"Not sent: at most {MAX_SENDS_PER_RUN} messages per waking."
+        sent = 0
+        with ctx.sessions() as s:
+            me = s.get_one(Dottie, ctx.dottie_id)
+            links = s.scalars(
+                select(TelegramLink).where(TelegramLink.owner_id == me.owner_id, TelegramLink.chat_id.is_not(None))
+            ).all()
+            if not links:
+                return "Not sent: no Telegram chat is linked. Tell the user to link one in the app, under Connect."
+            for link in links:
+                if link.chat_id is None:
+                    continue
+                # a chat that was talking to someone else is told who is writing now
+                text = message if link.dottie_id == me.id else f"{me.name}: {message}"
+                try:
+                    api.send(link.chat_id, text)
+                except Exception as e:
+                    record(ctx.sessions, ctx.dottie_id, ctx.run_id, "error", f"Telegram: {e}")
+                    continue
+                record_outgoing(s, link, me, message)
+                sent += 1
+            s.commit()
+        if not sent:
+            return "Not sent: Telegram refused it. Say so in your answer."
+        ctx.sends += 1
+        record(ctx.sessions, ctx.dottie_id, ctx.run_id, "sent", f"To you on Telegram: {message}", to="telegram")
+        return f"Sent on Telegram ({sent} chat{'s' if sent > 1 else ''})."
+
+    return send_telegram
 
 
 def schedule(ctx: RunContext) -> list[Callable[..., str]]:

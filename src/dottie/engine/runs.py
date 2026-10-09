@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..models import Conversation, Dottie, Message, Run
@@ -28,7 +28,32 @@ def describe(s: Session, messages: list[Message]) -> tuple[str, str, str]:
             "You were woken by one of your schedules; the task is the message below.",
             "Woke up for a scheduled task.",
         )
-    return body, "You were woken by a message from the person you work for.", "Woke up for a message from you."
+    return (
+        _notes(s, first) + body,
+        "You were woken by a message from the person you work for.",
+        "Woke up for a message from you.",
+    )
+
+
+def _notes(s: Session, first: Message) -> str:
+    """What the dottie wrote to the person on Telegram since it last handled a message here (send_telegram): that is
+    not in its thread, and a reply to it makes no sense without it."""
+    handled = (
+        select(func.coalesce(func.max(Message.id), 0))
+        .where(Message.conversation_id == first.conversation_id, Message.run_id.is_not(None), Message.id < first.id)
+        .scalar_subquery()
+    )
+    notes = s.scalars(
+        select(Message)
+        .where(
+            Message.conversation_id == first.conversation_id,
+            Message.status == "noted",
+            Message.id > handled,
+            Message.id < first.id,
+        )
+        .order_by(Message.id)
+    ).all()
+    return "".join(f"[You wrote to them on Telegram: {n.body}]\n\n" for n in notes)
 
 
 def complete_run(sessions: sessionmaker[Session], run_id: int, status: str, reply: str) -> bool:

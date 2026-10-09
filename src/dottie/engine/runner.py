@@ -23,6 +23,7 @@ from .runs import complete_run, describe
 from .sandbox_agent import SandboxAgent
 from .sandboxes import LazySandbox, SandboxProvider
 from .secrets import SecretStore
+from .telegram import TelegramApi
 from .tools import RunContext, build_tools, record
 
 log = logging.getLogger(__name__)
@@ -38,9 +39,10 @@ class Runner:
         provider: SandboxProvider,
         model_factory: ModelFactory,
         secrets: SecretStore | None = None,
+        telegram: TelegramApi | None = None,
     ):
         self.settings, self.sessions, self.provider, self.model_factory = settings, sessions, provider, model_factory
-        self.secrets = secrets
+        self.secrets, self.telegram = secrets, telegram
         # Two ways to run the agent: its loop in this process (the sandbox is only its computer), or the loop in the
         # sandbox itself (this process then only wakes it and waits). The second needs a sandbox to run in.
         self.agent_in_sandbox = settings.agent_mode == "sandbox" and provider.name != "none"
@@ -125,7 +127,7 @@ class Runner:
         )
 
         wiki = WikiFiles(self.sessions, dottie_id)
-        ctx = RunContext(self.sessions, dottie_id, run_id, depth, self.settings.max_message_depth)
+        ctx = RunContext(self.sessions, dottie_id, run_id, depth, self.settings.max_message_depth, self.telegram)
         mcp_tools, problems = await load_mcp_tools(
             servers, owner_id=dottie.owner_id, store=self.secrets, public_only=self.settings.auth_enabled
         )

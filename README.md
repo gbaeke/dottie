@@ -148,7 +148,9 @@ One bot serves everyone. Make it with @BotFather and set `TELEGRAM_BOT_TOKEN`. T
 when that is not public (locally: a tunnel, e.g. `cloudflared tunnel --url http://localhost:8370`). In the app, **Connect → Telegram**
 gives a one-time link that ties your chat to you. In the chat, `/dottie` picks which of your dotties you talk to, `/new`
 starts a fresh conversation, and anything else goes to the chosen dottie. Its answers (and `tell_user` messages sent in
-that conversation) come back to the chat.
+that conversation) come back to the chat. A dottie with the messaging toolkit can also write to your chats on its own
+with `send_telegram` (the message is kept in the chat's conversation and your reply goes to that dottie, with what it wrote
+as context), for instance as the task of a schedule ("every morning, send me the weather on Telegram").
 
 ## Run it
 

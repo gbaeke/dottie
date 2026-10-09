@@ -62,7 +62,7 @@ def create_app(
         app.state.secret_store = SecretStore(sessions, cipher)
         if cipher:  # credentials saved inside MCP server URLs before secrets existed move into the store
             repair_inline_credentials(sessions, app.state.secret_store, looks_secret)
-        runner = Runner(settings, sessions, app.state.provider, model_factory, app.state.secret_store)
+        runner = Runner(settings, sessions, app.state.provider, model_factory, app.state.secret_store, telegram)
         app.state.telegram = telegram
         engine = Engine(settings, db, sessions, runner, telegram)
         app.state.engine = engine
