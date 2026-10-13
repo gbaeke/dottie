@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     workos_client_id: str = ""
     workos_api_key: str = ""
     session_secret: str = ""  # encrypts the session cookie
+    cors_origins: str = ""  # comma separated origins that may call the API from a browser or webview (desktop app)
     allowed_users: str = ""  # comma separated emails; empty: everyone WorkOS lets in
     public_url: str = ""  # the address people use, when a proxy hides it (Azure Container Apps)
     max_dotties_per_user: int = 20

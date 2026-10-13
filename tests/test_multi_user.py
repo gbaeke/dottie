@@ -246,3 +246,38 @@ def test_a_workos_refusal_at_sign_in_is_explained_not_a_server_error(settings):
             res.json()["error"]["code"] == "signin_failed"
             and "same WorkOS application" in res.json()["error"]["message"]
         )
+
+
+def test_the_api_accepts_a_personal_token_as_that_user_and_only_that_user(app):
+    ann, bob = sign_in(app, "ann"), sign_in(app, "bob")
+    make(ann, "Ada")
+    make(bob, "Bo")
+    token = ann.post("/api/tokens", json={"name": "desktop"}).json()["token"]
+
+    desktop = TestClient(app)  # no cookie: only the token
+    names = lambda headers: [d["name"] for d in desktop.get("/api/dotties", headers=headers).json()]  # noqa: E731
+    assert names({"Authorization": f"Bearer {token}"}) == ["Ada"]
+    assert desktop.get("/api/dotties", headers={"Authorization": "Bearer dtk_wrong"}).status_code == 401
+    assert desktop.get("/api/dotties").status_code == 401
+    bobs = bob.get("/api/dotties").json()[0]["id"]
+    assert desktop.get(f"/api/dotties/{bobs}", headers={"Authorization": f"Bearer {token}"}).status_code == 404
+
+    # the cookie still works when a proxy adds some other Authorization header, or the token is not known
+    for header in ("Basic YTpi", "Bearer dtk_wrong"):
+        assert ann.get("/api/dotties", headers={"Authorization": header}).status_code == 200
+
+    ann.delete(f"/api/tokens/{ann.get('/api/tokens').json()[0]['id']}")  # a deleted token stops working
+    assert desktop.get("/api/dotties", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_cors_lets_the_desktop_app_preflight_without_signing_in(settings):
+    on = settings.model_copy(
+        update={"workos_client_id": "client_test", "session_secret": "secret", "cors_origins": "tauri://localhost"}
+    )
+    with TestClient(create_app(on, workos=FakeWorkOS())) as client:
+        ask = {"Origin": "tauri://localhost", "Access-Control-Request-Method": "GET",
+               "Access-Control-Request-Headers": "authorization"}  # fmt: skip
+        res = client.options("/api/dotties", headers=ask)
+        assert res.status_code == 200
+        assert res.headers["access-control-allow-origin"] == "tauri://localhost"
+        assert client.options("/api/dotties", headers={**ask, "Origin": "https://evil.test"}).status_code == 400

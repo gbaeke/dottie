@@ -1,6 +1,5 @@
 """Personal access tokens: how a user's other tools (an MCP client such as Claude Code) act as them."""
 
-import hashlib
 import secrets
 from datetime import datetime
 
@@ -8,16 +7,12 @@ from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from ..auth import UserDep
+from ..auth import UserDep, hash_token
 from ..db import SessionDep
 from ..models import ApiToken
 from .errors import ApiError
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 class TokenIn(BaseModel):
