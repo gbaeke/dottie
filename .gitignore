@@ -23,3 +23,8 @@ frontend/dist/
 .DS_Store
 .claude/worktrees/
 .claude/settings.local.json
+
+# desktop app
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
