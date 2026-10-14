@@ -7,10 +7,12 @@ the session (sign-out elsewhere, a removed user, the session length set in the d
 answers 401 and pages redirect to the sign-in. ALLOWED_USERS, when set, is a second list the app checks itself.
 """
 
+import asyncio
 import base64
 import hashlib
 import logging
 import secrets
+from datetime import UTC, datetime
 from typing import Annotated, Any, Protocol
 from urllib.parse import quote
 
@@ -24,7 +26,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from .api.errors import ApiError
 from .config import Settings
-from .models import Dottie, Skill
+from .models import ApiToken, Dottie, Skill
 
 log = logging.getLogger(__name__)
 
@@ -39,6 +41,23 @@ PUBLIC_PATHS = ("/auth/", "/api/health", "/internal/", "/mcp", "/telegram/webhoo
 class User(BaseModel):
     id: str
     email: str
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def token_owner(sessions: sessionmaker[Session], token: str) -> str | None:
+    """Whose personal access token this is (and note that it was just used); None when it is unknown."""
+    if not token:
+        return None
+    with sessions() as s:
+        row = s.scalar(select(ApiToken).where(ApiToken.token_hash == hash_token(token)))
+        if row is None:
+            return None
+        row.last_used_at = datetime.now(UTC)
+        s.commit()
+        return row.owner_id
 
 
 LOCAL_USER = User(id="local", email="you@localhost")  # who everything belongs to while sign-in is off
@@ -163,6 +182,14 @@ class AuthMiddleware:
 
         settings: Settings = request.app.state.settings
         user, refreshed = None, None
+        scheme, _, bearer = request.headers.get("authorization", "").partition(" ")
+        if scheme == "Bearer" and bearer.strip().startswith("dtk_"):
+            # a personal access token (the desktop app, scripts): who it belongs to; the email is not stored with it
+            owner = await asyncio.to_thread(token_owner, request.app.state.session_factory, bearer.strip())
+            if owner:
+                scope.setdefault("state", {})["user"] = User(id=owner, email="")
+                return await self.app(scope, receive, send)
+        # anything else (no header, another scheme, an unknown token) is the browser's session cookie, as before
         if sealed := request.cookies.get(SESSION_COOKIE):
             user, refreshed = await request.app.state.workos.check(sealed)
         if user and settings.user_allowed(user.email):

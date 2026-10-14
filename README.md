@@ -152,6 +152,29 @@ that conversation) come back to the chat. A dottie with the messaging toolkit ca
 with `send_telegram` (the message is kept in the chat's conversation and your reply goes to that dottie, with what it wrote
 as context), for instance as the task of a schedule ("every morning, send me the weather on Telegram").
 
+## Desktop app (Linux)
+
+A window onto your Dottie server with a tray icon (asleep or awake), a notification when a dottie writes to you
+(click it to open that chat), and the last dottie reopened at start. It is a thin [Tauri](https://tauri.app) shell around
+the web app, so sign-in and chat are the same as in the browser. The code is in [desktop/](desktop/).
+
+You need Rust and the Tauri libraries. On Arch / Omarchy: `sudo pacman -S --needed rust webkit2gtk-4.1 gtk3
+libayatana-appindicator librsvg` (rustup works too). Node is already there for the frontend.
+
+```bash
+scripts/desktop-install.sh                  # build a release binary and add Dottie to the app launcher
+scripts/desktop-install.sh --autostart      # the same, and start it at login (tray icon and notifications)
+DOTTIE_URL=https://your-app.example scripts/desktop-install.sh   # a server other than http://localhost:8370
+scripts/desktop-install.sh --remove         # uninstall: the binary, icon, launcher entry and autostart
+```
+
+It installs under `~/.local` (`bin/dottie-desktop`, a `.desktop` entry and the icon) and needs no root. A second launch
+shows the running window instead of opening another. Closing the window hides it to the tray; quit from the tray menu.
+The app does not start the server: run `scripts/run-local.sh` first, or point `DOTTIE_URL` at a deployed one (add its
+address to `desktop/src-tauri/capabilities/default.json`, which lists where the page may call the app's two commands;
+localhost and `*.azurecontainerapps.io` are already there). Your sign-in is kept between runs. To run from source
+instead: `cd desktop && npm install && npm run dev`.
+
 ## Run it
 
 Needs [uv](https://docs.astral.sh/uv/), Node.js 24+ and Docker (for PostgreSQL and the dotties' sandboxes).
@@ -188,6 +211,7 @@ src/dottie/api/      one router per area: dotties, chat, wiki, schedules, skills
 src/dottie/mcp_server.py   Dottie as an MCP server
 src/dottie_runtime/  the agent runtime that runs inside a sandbox (shares nothing with the app but HTTP)
 frontend/            React, Vite, Tailwind; the API client is generated from the OpenAPI schema
+desktop/             the Linux desktop app (Tauri): window, tray, notifications
 infra/               Bicep for Azure; scripts/ has azure-up, azure-deploy and azure-down
 tests/               pytest against a real PostgreSQL, with a scripted fake model
 ```

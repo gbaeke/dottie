@@ -8,7 +8,6 @@ import asyncio
 import time
 from collections.abc import Callable
 from contextvars import ContextVar
-from datetime import UTC, datetime
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -17,9 +16,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .api.tokens import hash_token
+from .auth import token_owner
 from .engine import bus
-from .models import ApiToken, Conversation, Dottie, Message, WikiPage
+from .models import Conversation, Dottie, Message, WikiPage
 
 Sessions = Callable[[], sessionmaker[Session]]  # a function: the database only exists once the app has started
 OWNER: ContextVar[str] = ContextVar("mcp_owner", default="local")  # whose dotties the caller may use
@@ -47,15 +46,7 @@ class McpAccess:
             OWNER.reset(reset)
 
     def _owner(self, token: str) -> str | None:
-        if not token:
-            return None
-        with self.sessions()() as s:
-            row = s.scalar(select(ApiToken).where(ApiToken.token_hash == hash_token(token)))
-            if row is None:
-                return None
-            row.last_used_at = datetime.now(UTC)
-            s.commit()
-            return row.owner_id
+        return token_owner(self.sessions(), token)
 
 
 def _find(s: Session, name: str) -> Dottie:

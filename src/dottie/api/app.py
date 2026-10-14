@@ -4,6 +4,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import sessionmaker
@@ -92,6 +93,10 @@ def create_app(
         app.state.workos = workos or auth.SdkWorkOS(settings)
         app.add_middleware(auth.AuthMiddleware)
         app.include_router(auth.build_router())
+    if origins := [o.strip() for o in settings.cors_origins.split(",") if o.strip()]:
+        app.add_middleware(  # outside the sign-in check, so preflights (which carry no credentials) get through
+            CORSMiddleware, allow_origins=origins, allow_methods=["*"], allow_headers=["Authorization", "Content-Type"]
+        )
     app.add_middleware(RequestContext)  # added last, so it runs first: every response gets its id and headers
 
     api = APIRouter(prefix="/api")
