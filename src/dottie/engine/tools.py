@@ -110,7 +110,15 @@ def messaging(ctx: RunContext) -> list[Callable[..., str]]:
             latest = select(Conversation).where(Conversation.dottie_id == ctx.dottie_id, Conversation.kind == "chat")
             conversation = conversation or s.scalar(latest.order_by(Conversation.updated_at.desc()).limit(1))
             conversation = conversation or bus.new_conversation(s, ctx.dottie_id, "chat", "Updates")
-            bus.post(s, conversation, sender_kind="dottie", sender_id=ctx.dottie_id, recipient_id=None, body=message)
+            bus.post(
+                s,
+                conversation,
+                sender_kind="dottie",
+                sender_id=ctx.dottie_id,
+                recipient_id=None,
+                body=message,
+                status=bus.RELAYED,
+            )
             s.commit()
         record(ctx.sessions, ctx.dottie_id, ctx.run_id, "sent", f"To you: {message}", to="user")
         return "Delivered to the user's inbox."

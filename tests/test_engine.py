@@ -205,3 +205,26 @@ def test_a_delegated_answer_goes_back_to_the_conversation_that_asked(client, scr
 
     assert "Rex says: Example Domain." in bodies(asked)
     assert "Rex says: Example Domain." not in bodies(newer)
+
+
+def test_a_follow_up_in_the_asking_conversation_includes_what_was_relayed(client, scripts):
+    from dottie.engine import runs
+    from dottie.models import Message
+
+    ada = make(client, name="Ada")
+    make(client, name="Rex")
+    scripts["ada"] = [
+        use(call("send_message", to="rex", message="Title of example.com?")),
+        say("Asked Rex."),
+        use(call("tell_user", message="Rex says: Example Domain.")),
+        say("Passed it on."),
+    ]
+    scripts["rex"] = [use(call("send_message", to="ada", message="Example Domain.")), say("Sent.")]
+    asked = chat(client, ada["id"], "Ask Rex for the title of example.com.")
+    for _ in range(3):
+        wake_everyone(client)
+    client.post(f"/api/conversations/{asked}/messages", json={"body": "What did Rex say?"})
+    with client.app.state.session_factory() as s:
+        follow_up = s.query(Message).filter(Message.body == "What did Rex say?").one()
+        text, _, _ = runs.describe(s, [follow_up])
+    assert text == "[You told them, with tell_user: Rex says: Example Domain.]\n\nWhat did Rex say?"

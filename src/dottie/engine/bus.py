@@ -33,6 +33,9 @@ def peer_conversation(session: Session, owner: Dottie, peer: Dottie) -> Conversa
     return found or new_conversation(session, owner.id, "dottie", f"With {peer.name}", peer.id)
 
 
+RELAYED = "relayed"  # tell_user passing on something in a conversation whose thread memory has not seen it
+
+
 def post(
     session: Session,
     conversation: Conversation,

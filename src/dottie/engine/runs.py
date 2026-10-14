@@ -36,8 +36,8 @@ def describe(s: Session, messages: list[Message]) -> tuple[str, str, str]:
 
 
 def _notes(s: Session, first: Message) -> str:
-    """What the dottie wrote to the person on Telegram since it last handled a message here (send_telegram): that is
-    not in its thread, and a reply to it makes no sense without it."""
+    """What the dottie wrote to the person here without it being in this thread's memory (send_telegram, and tell_user
+    from a run in another conversation, such as a delegation's): a reply to it makes no sense without it."""
     handled = (
         select(func.coalesce(func.max(Message.id), 0))
         .where(Message.conversation_id == first.conversation_id, Message.run_id.is_not(None), Message.id < first.id)
@@ -47,13 +47,18 @@ def _notes(s: Session, first: Message) -> str:
         select(Message)
         .where(
             Message.conversation_id == first.conversation_id,
-            Message.status == "noted",
+            Message.status.in_(["noted", bus.RELAYED]),
             Message.id > handled,
             Message.id < first.id,
         )
         .order_by(Message.id)
     ).all()
-    return "".join(f"[You wrote to them on Telegram: {n.body}]\n\n" for n in notes)
+    return "".join(
+        f"[You wrote to them on Telegram: {n.body}]\n\n"
+        if n.status != bus.RELAYED
+        else f"[You told them, with tell_user: {n.body}]\n\n"
+        for n in notes
+    )
 
 
 def complete_run(sessions: sessionmaker[Session], run_id: int, status: str, reply: str) -> bool:
