@@ -32,7 +32,7 @@ dottie = "dottie:main"
 module-name = ["dottie", "dottie_runtime"]  # dottie_runtime is what runs inside a dottie's sandbox
 
 [build-system]
-requires = ["uv_build>=0.12.10,<0.13.0"]
+requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
